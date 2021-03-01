@@ -110,6 +110,16 @@ module.exports.Component = registerComponent('animation', {
 
     if (!this.data.enabled) { return; }
 
+    // When an animation is autoplayed, and finite in duration, we want
+    // it to be possible to play the exact same animation again, by setting the
+    // exact same properties.
+    if ((this.data.autoplay) && (this.data.loop !== true))
+    {
+      // Scrubbing property from oldData will ensure we always get called on the
+      // next update, even if parameters are identical.
+      this.oldData.property = '';
+    }
+
     if (!data.property) { return; }
 
     // Base config.
