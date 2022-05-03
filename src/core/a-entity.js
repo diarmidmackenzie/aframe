@@ -387,13 +387,12 @@ var proto = Object.create(ANode.prototype, {
 
       // Wait for component to initialize.
       if (!component.initialized) {
-        component.pendingRemoval = true;
+        component.pendingRemoveComponent = true;
         this.addEventListener('componentinitialized', function tryRemoveLater (evt) {
           if (evt.detail.name !== name) { return; }
-          if (component.pendingRemoval) {
-            this.removeComponent(name, destroy);
-            component.pendingRemoval = false;
-          }
+          if (component.pendingRemoveComponent) { return; }
+
+          this.removeComponent(name, destroy);
           this.removeEventListener('componentinitialized', tryRemoveLater);
         });
         return;
@@ -483,6 +482,7 @@ var proto = Object.create(ANode.prototype, {
   updateComponent: {
     value: function (attr, attrValue, clobber) {
       var component = this.components[attr];
+      component.pendingRemoveComponent = false;
 
       if (component) {
         // Remove component.
@@ -490,16 +490,9 @@ var proto = Object.create(ANode.prototype, {
           this.removeComponent(attr, true);
           return;
         }
-        // Component initialization already started. Update component.
+        // Component already initialized. Update component.
         component.updateProperties(attrValue, clobber);
 
-        // Component has been initialized, but is pending removal
-        if (component.pendingRemoval) {
-          // This new update should cancel any pending removal, and reinstate the attribute
-          // (which will have been removed, synchronously, when the component removal was initiated)
-          window.HTMLElement.prototype.setAttribute.call(this, attr, '');
-          component.pendingRemoval = false;
-        }
         return;
       }
 
