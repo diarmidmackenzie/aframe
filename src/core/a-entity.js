@@ -390,16 +390,16 @@ var proto = Object.create(ANode.prototype, {
         component.pendingRemoveComponent = true;
         this.addEventListener('componentinitialized', function tryRemoveLater (evt) {
           if (evt.detail.name !== name) { return; }
-          if (component.pendingRemoveComponent) { return; }
+          if (!component.pendingRemoveComponent) { return; }
 
           this.removeComponent(name, destroy);
           this.removeEventListener('componentinitialized', tryRemoveLater);
+
+          component.pause();
+          component.remove();
         });
         return;
       }
-
-      component.pause();
-      component.remove();
 
       // Keep component attached to entity in case of just full entity detach.
       if (destroy) {
@@ -482,9 +482,10 @@ var proto = Object.create(ANode.prototype, {
   updateComponent: {
     value: function (attr, attrValue, clobber) {
       var component = this.components[attr];
-      component.pendingRemoveComponent = false;
 
       if (component) {
+        component.pendingRemoveComponent = false;
+
         // Remove component.
         if (attrValue === null && !checkComponentDefined(this, attr)) {
           this.removeComponent(attr, true);
