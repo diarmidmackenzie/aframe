@@ -350,46 +350,41 @@ class AEntity extends ANode {
 
     if (!dependencies) { return; }
 
-      // Initialize dependencies.
-      for (i = 0; i < dependencies.length; i++) {
-        // Call getAttribute to initialize the data from the DOM.
-        self.initComponent(
-          dependencies[i],
-          window.HTMLElement.prototype.getAttribute.call(self, dependencies[i]) || undefined,
-          true
-        );
-      }
-    },
-    writable: window.debug
-  },
+    // Initialize dependencies.
+    for (i = 0; i < dependencies.length; i++) {
+      // Call getAttribute to initialize the data from the DOM.
+      self.initComponent(
+        dependencies[i],
+        window.HTMLElement.prototype.getAttribute.call(self, dependencies[i]) || undefined,
+        true
+      );
+    }
+  }
 
   removeComponent (name, destroy) {
     var component;
-      var self = this;
+    var self = this;
 
     component = this.components[name];
     if (!component) { return; }
 
     // Wait for component to initialize.
     if (!component.initialized) {
-        component.pendingRemoveComponent = true;
+      component.pendingRemoveComponent = true;
       this.addEventListener('componentinitialized', function tryRemoveLater (evt) {
         if (evt.detail.name !== name) { return; }
         if (!component.pendingRemoveComponent) { return; }
 
         self.removeEventListener('componentinitialized', tryRemoveLater);
-          self.removeComponentOnceInitialized(name, component, destroy);
+        self.removeComponentOnceInitialized(name, component, destroy);
       });
       return;
     }
 
-      this.removeComponentOnceInitialized(name, component, destroy, null);
-    },
-    writable: window.debug
-  },
+    this.removeComponentOnceInitialized(name, component, destroy, null);
+  }
 
-  removeComponentOnceInitialized: {
-    value: function (name, component, destroy) {
+  removeComponentOnceInitialized (name, component, destroy) {
     component.pause();
     component.remove();
 
@@ -399,8 +394,8 @@ class AEntity extends ANode {
       delete this.components[name];
     }
 
-      // remove the DOM attribute
-      window.HTMLElement.prototype.removeAttribute.call(this, name);
+    // remove the DOM attribute
+    window.HTMLElement.prototype.removeAttribute.call(this, name);
 
     this.emit('componentremoved', component.evtDetail, false);
   }
@@ -473,7 +468,7 @@ class AEntity extends ANode {
     var component = this.components[attr];
 
     if (component) {
-        component.pendingRemoveComponent = false;
+      component.pendingRemoveComponent = false;
 
       // Remove component.
       if (attrValue === null && !checkComponentDefined(this, attr)) {
@@ -517,12 +512,12 @@ class AEntity extends ANode {
       this.mixinUpdate('');
     }
 
-      if (!component) {
-        // component property attributes are removed once component removed.
-        // non-component property attributes can be removed immediately.
+    if (!component) {
+      // component property attributes are removed once component removed.
+      // non-component property attributes can be removed immediately.
       window.HTMLElement.prototype.removeAttribute.call(this, attr);
     }
-    }
+  }
 
   /**
    * Start dynamic behavior associated with entity such as dynamic components and animations.
