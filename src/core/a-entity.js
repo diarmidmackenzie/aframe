@@ -375,12 +375,14 @@ var proto = Object.create(ANode.prototype, {
           true
         );
       }
-    }
+    },
+    writable: window.debug
   },
 
   removeComponent: {
     value: function (name, destroy) {
       var component;
+      var self = this;
 
       component = this.components[name];
       if (!component) { return; }
@@ -392,20 +394,30 @@ var proto = Object.create(ANode.prototype, {
           if (evt.detail.name !== name) { return; }
           if (!component.pendingRemoveComponent) { return; }
 
-          this.removeComponent(name, destroy);
-          this.removeEventListener('componentinitialized', tryRemoveLater);
-
-          component.pause();
-          component.remove();
+          self.removeEventListener('componentinitialized', tryRemoveLater);
+          self.removeComponentOnceInitialized(name, component, destroy);
         });
         return;
       }
+
+      this.removeComponentOnceInitialized(name, component, destroy, null);
+    },
+    writable: window.debug
+  },
+
+  removeComponentOnceInitialized: {
+    value: function (name, component, destroy) {
+      component.pause();
+      component.remove();
 
       // Keep component attached to entity in case of just full entity detach.
       if (destroy) {
         component.destroy();
         delete this.components[name];
       }
+
+      // remove the DOM attribute
+      window.HTMLElement.prototype.removeAttribute.call(this, name);
 
       this.emit('componentremoved', component.evtDetail, false);
     },
@@ -530,7 +542,11 @@ var proto = Object.create(ANode.prototype, {
         this.mixinUpdate('');
       }
 
-      window.HTMLElement.prototype.removeAttribute.call(this, attr);
+      if (!component) {
+        // component property attributes are removed once component removed.
+        // non-component property attributes can be removed immediately.
+        window.HTMLElement.prototype.removeAttribute.call(this, attr);
+      }
     }
   },
 
