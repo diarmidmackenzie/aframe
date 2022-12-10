@@ -132,8 +132,9 @@ class AEntity extends ANode {
    *
    * @param {string} type - Developer-set name of the type of object, will be unique per type.
    * @param {object} obj - A THREE.Object3D.
+   * @param {object} autoUpdate - Whether to set matrixAutoUpdate on the THREE.Object3D.
    */
-  setObject3D (type, obj) {
+  setObject3D (type, obj, autoUpdate = false) {
     var oldObj;
     var self = this;
 
@@ -159,6 +160,7 @@ class AEntity extends ANode {
     // Add.
     this.object3D.add(obj);
     this.object3DMap[type] = obj;
+    obj.matrixAutoUpdate(autoUpdate);
     this.emit('object3dset', {object: obj, type: type});
   }
 
