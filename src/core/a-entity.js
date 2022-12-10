@@ -160,7 +160,7 @@ class AEntity extends ANode {
     // Add.
     this.object3D.add(obj);
     this.object3DMap[type] = obj;
-    obj.matrixAutoUpdate(autoUpdate);
+    obj.matrixAutoUpdate = autoUpdate;
     this.emit('object3dset', {object: obj, type: type});
   }
 
