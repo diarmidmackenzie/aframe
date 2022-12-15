@@ -34,6 +34,9 @@ module.exports = {
   resolve: {
     alias: {
       three: 'super-three'
+    },
+    fallback: {
+      'buffer': false
     }
   },
   module: {
@@ -54,3 +57,4 @@ module.exports = {
     ]
   }
 };
+
