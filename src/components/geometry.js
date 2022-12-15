@@ -54,6 +54,8 @@ module.exports.Component = registerComponent('geometry', {
         });
       }
       el.setObject3D('mesh', mesh);
+      // for efficiency, share parent matrix
+      mesh.shareParentMatrix();
     }
   },
 

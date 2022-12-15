@@ -45,6 +45,8 @@ module.exports.Component = registerComponent('gltf-model', {
         self.model = gltfModel.scene || gltfModel.scenes[0];
         self.model.animations = gltfModel.animations;
         el.setObject3D('mesh', self.model);
+        // for efficiency, share parent matrix
+        self.model.shareParentMatrix();
         el.emit('model-loaded', {format: 'gltf', model: self.model});
       }, undefined /* onProgress */, function gltfFailed (error) {
         var message = (error && error.message) ? error.message : 'Failed to load glTF model';
