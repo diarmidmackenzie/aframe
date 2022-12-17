@@ -16570,6 +16570,13 @@ module.exports.Component = registerComponent('pool', {
     el.pause();
     this.container.appendChild(el);
     this.availableEls.push(el);
+
+    var usedEls = this.usedEls;
+    el.addEventListener('loaded', function () {
+      if (usedEls.indexOf(el) !== -1) { return; }
+      el.object3DParent = el.object3D.parent;
+      el.object3D.parent.remove(el.object3D);
+    });
   },
 
   /**
@@ -16601,6 +16608,9 @@ module.exports.Component = registerComponent('pool', {
     }
     el = this.availableEls.shift();
     this.usedEls.push(el);
+    if (el.object3DParent) {
+      el.object3DParent.add(el.object3D);
+    }
     el.object3D.visible = true;
     return el;
   },
@@ -16617,6 +16627,8 @@ module.exports.Component = registerComponent('pool', {
     this.usedEls.splice(index, 1);
     this.availableEls.push(el);
     el.object3D.visible = false;
+    el.object3DParent = el.object3D.parent;
+    el.object3D.parent.remove(el.object3D);
     el.pause();
     return el;
   }
@@ -25754,7 +25766,7 @@ _dereq_('./core/a-mixin');
 _dereq_('./extras/components/');
 _dereq_('./extras/primitives/');
 
-console.log('A-Frame Version: 1.1.0 (Date 2022-12-17, Commit #b8078e00)');
+console.log('A-Frame Version: 1.1.0 (Date 2022-12-17, Commit #ef55c884)');
 console.log('THREE Version (https://github.com/supermedium/three.js):',
             pkg.dependencies['super-three']);
 console.log('WebVR Polyfill Version:', pkg.dependencies['webvr-polyfill']);
