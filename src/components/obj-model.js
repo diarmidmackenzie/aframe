@@ -71,6 +71,7 @@ module.exports.Component = registerComponent('obj-model', {
             }
           });
           el.setObject3D('mesh', objModel);
+          objModel.shareParentMatrix();
           el.emit('model-loaded', {format: 'obj', model: objModel});
         });
       });
@@ -82,6 +83,7 @@ module.exports.Component = registerComponent('obj-model', {
       self.model = objModel;
       self.applyMaterial();
       el.setObject3D('mesh', objModel);
+      objModel.shareParentMatrix();
       el.emit('model-loaded', {format: 'obj', model: objModel});
     });
   },
