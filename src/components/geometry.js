@@ -46,6 +46,8 @@ module.exports.Component = registerComponent('geometry', {
       mesh = new THREE.Mesh();
       mesh.geometry = this.geometry;
       el.setObject3D('mesh', mesh);
+      // for efficiency, share parent matrix
+      mesh.shareParentMatrix();
     }
   },
 
