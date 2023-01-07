@@ -137,19 +137,19 @@ and fly around to peek under the hood!
 [augmented reality]: https://github.com/jeromeetienne/AR.js#augmented-reality-for-the-web-in-less-than-10-lines-of-html
 [environment]: https://github.com/supermedium/aframe-environment-component
 [multiuser]: https://github.com/networked-aframe/networked-aframe
-[oceans]: https://github.com/n5ro/aframe-extras/tree/master/src/primitives
+[oceans]: https://github.com/c-frame/aframe-extras/tree/master/src/primitives
 [particle systems]: https://github.com/IdeaSpaceVR/aframe-particle-system-component
-[physics]: https://github.com/n5ro/aframe-physics-system
+[physics]: https://github.com/c-frame/aframe-physics-system
 [state]: https://npmjs.com/package/aframe-state-component
-[super hands]: https://github.com/wmurphyrd/aframe-super-hands-component
+[super hands]: https://github.com/c-frame/aframe-super-hands-component
 [teleportation]: https://github.com/jure/aframe-blink-controls
+[directory]: https://aframe.wiki/en/#!pages/component-directory.md
 
 :runner: **Components**: Hit the ground running with A-Frame's core components
 such as geometries, materials, lights, animations, models, raycasters, shadows,
 positional audio, text, and controls for most major headsets. Get even further
 from the hundreds of community components including [environment], [state], [particle
-systems], [physics], [multiuser], [oceans], [teleportation], [super hands], and
-[augmented reality].
+systems], [physics], [multiuser], [oceans], [teleportation], [super hands], [augmented reality], and [many more...][directory]
 
 :earth_americas: **Proven and Scalable**: A-Frame has been used by companies
 such as Google, Disney, Samsung, Toyota, Ford, Chevrolet, Amnesty
