@@ -268,11 +268,11 @@ to say, `<a-sphere>` or `<a-obj-model>`, we could!
 <a-obj-model src="model.obj" random-color></a-obj-model>
 ```
 
-[registry]: https://aframe.io/registry/
+[component-directory]: https://aframe.wiki/en/#!pages/component-directory.md
 
-if we wanted to share this component for other people to use, we could too.  We
-curate from many handy components from the ecosystem at [the A-Frame
-Registry][registry], similar to the Unity Asset Store. If we developed our
+if we wanted to share this component for other people to use, we could too.
+The community curates a list of handy components from the ecosystem at [the A-Frame
+Component Directory][component-directory], similar to the Unity Asset Store. If we developed our
 application using components, all our code is inherently modular and reusable!
 
 ### Snap Component
@@ -382,36 +382,33 @@ teleport to the end of the arc. Before, we wrote our own A-Frame components.
 But we can also use open source components already made from the community
 and just use them straight from HTML!
 
-[aframe-teleport-controls]: https://github.com/fernandojsg/aframe-teleport-controls/
-[@fernandojsg]: https://twitter.com/fernandojsg/
+[blink-controls]:https://github.com/jure/aframe-blink-controls/
 
-For teleportation, there's a [teleport-controls
-component][aframe-teleport-controls] by @fernandojsg. Following the README, we
-add the component via a `<script>` tag and just set the `teleport-controls`
+For teleportation, there's a teleport component called [aframe-blink-controls][blink-controls]. 
+Following the README, we add the component via a `<script>` tag and just set the `blink-controls`
 component on the controller on the entity:
 
 ```html
 <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-<script src="https://unpkg.com/aframe-teleport-controls@0.3.x/dist/aframe-teleport-controls.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/aframe-blink-controls@0.4.3/dist/aframe-blink-controls.min.js"></script>
 
 <!-- ... -->
 
-<a-entity id="teleHand" hand-controls="hand: left" teleport-controls></a-entity>
+<a-entity id="teleHand" hand-controls="hand: left" blink-controls></a-entity>
 <a-entity id="blockHand" hand-controls="hand: right"></a-entity>
 ```
 
-Then we'll configure the `teleport-controls` component to use an arc `type` of
-teleportation. By default, `teleport-controls` will only teleport on the
+By default, `blink-controls` will only teleport on the
 ground, but we can specify with `collisionEntities` to teleport on the blocks
 *and* the ground using selectors. These properties are part of the API that the
-`teleport-controls` component was created with:
+`blink-controls` component was created with:
 
 ```html
-<a-entity id="teleHand" hand-controls="hand: left" teleport-controls="type: parabolic; collisionEntities: [mixin='voxel'], #ground"></a-entity>
+<a-entity id="teleHand" hand-controls="hand: left" blink-controls="collisionEntities: [mixin='voxel'], #ground"></a-entity>
 ```
 
 That's it! **One script tag and one HTML attribute and we can teleport**.  For
-more cool components, check out the [A-Frame Registry][registry].
+more cool components, check out the [A-Frame Component Directory][component-directory].
 
 ### Adding Voxel Spawner to the Right Hand
 
@@ -424,16 +421,16 @@ interaction events and checking the raycaster for intersections.
 
 A-Frame provides `laser-controls` component for controller laser interaction
 that attaches the clicking laser to VR tracked controllers.  Like the
-`teleport-controls` component, we include the script tag and attach the
+`blink-controls` component, we include the script tag and attach the
 `laser-controls` component. This time to the right hand:
 
 ```html
 <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-<script src="https://unpkg.com/aframe-teleport-controls@0.3.x/dist/aframe-teleport-controls.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/aframe-blink-controls@0.4.3/dist/aframe-blink-controls.min.js"></script>
 
 <!-- ... -->
 
-<a-entity id="teleHand" hand-controls="hand: left" teleport-controls="type: parabolic; collisionEntities: [mixin='voxel'], #ground"></a-entity>
+<a-entity id="teleHand" hand-controls="hand: left" blink-controls="collisionEntities: [mixin='voxel'], #ground"></a-entity>
 <a-entity id="blockHand" hand-controls="hand: right" laser-controls></a-entity>
 ```
 

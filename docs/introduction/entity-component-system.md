@@ -354,6 +354,8 @@ The A-Frame Blog archives include details of components as they were released or
 
 The [A-Frame Wiki](https://aframe.wiki/) is a useful community-driven initiative that collects information and tips about available A-Frame components. Everyone is encouraged to participate. It's very easy to add and edit information.
 
+Within the wiki, you'll find the [A-Frame Component Directory]()
+
 ### Using a Community Component
 
 [particlesystem]: https://www.npmjs.com/package/aframe-particle-system-component
@@ -458,7 +460,7 @@ Now we can include it into our HTML:
 ![Registry Example](https://cloud.githubusercontent.com/assets/674727/25502318/0f76ceec-2b4b-11e7-9829-cb3784b20dc1.gif)
 
 Below is a complete example of using various community components from the
-Registry and using the unpkg CDN. We can [remix or check out this example on
+Component Directory and using the unpkg CDN. We can [remix or check out this example on
 Glitch][glitch].
 
 ```html

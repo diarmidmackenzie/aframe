@@ -142,7 +142,7 @@ and fly around to peek under the hood!
 [physics]: https://github.com/n5ro/aframe-physics-system
 [state]: https://npmjs.com/package/aframe-state-component
 [super hands]: https://github.com/wmurphyrd/aframe-super-hands-component
-[teleportation]: https://github.com/fernandojsg/aframe-teleport-controls
+[teleportation]: https://github.com/jure/aframe-blink-controls
 
 :runner: **Components**: Hit the ground running with A-Frame's core components
 such as geometries, materials, lights, animations, models, raycasters, shadows,
