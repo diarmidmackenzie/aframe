@@ -241,7 +241,7 @@ most VR applications it's better to do locomotion with methods such as using
 of the way or not require much movement, or explore more creative ways of
 moving users through the world.
 
-[physics]: https://github.com/donmccurdy/aframe-physics-system
+[physics]: https://github.com/c-frame/aframe-physics-system
 
 For non-VR desktop experiences with a gamepad or keyboard controls or for VR
 scenes where the camera is inside a vehicle, you can add a [physics
