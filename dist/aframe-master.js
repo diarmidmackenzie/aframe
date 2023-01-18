@@ -15604,10 +15604,10 @@ module.exports.Component = registerComponent('layer', {
 });
 function blitTexture(gl, texture, subImage, textureEl) {
   var xrReadFramebuffer = gl.createFramebuffer();
-  let x1offset = subImage.viewport.x;
-  let y1offset = subImage.viewport.y;
-  let x2offset = subImage.viewport.x + subImage.viewport.width;
-  let y2offset = subImage.viewport.y + subImage.viewport.height;
+  var x1offset = subImage.viewport.x;
+  var y1offset = subImage.viewport.y;
+  var x2offset = subImage.viewport.x + subImage.viewport.width;
+  var y2offset = subImage.viewport.y + subImage.viewport.height;
 
   // Update video texture.
   if (textureEl.tagName === 'VIDEO') {
@@ -18556,8 +18556,9 @@ module.exports.Component = registerComponent('oculus-touch-controls', {
  */
 function cloneMeshMaterial(object3d) {
   object3d.traverse(function (node) {
+    var newMaterial;
     if (node.type !== 'Mesh') return;
-    let newMaterial = node.material.clone();
+    newMaterial = node.material.clone();
     object3d.originalColor = node.material.color;
     node.material.dispose();
     node.material = newMaterial;
@@ -25681,10 +25682,10 @@ class ANode extends HTMLElement {
         }
       });
       self.hasLoaded = true;
+      self.setupMutationObserver();
       if (cb) {
         cb();
       }
-      self.setupMutationObserver();
       self.emit('loaded', undefined, false);
     });
   }
@@ -25694,7 +25695,7 @@ class ANode extends HTMLElement {
    * for attributes defined statically via observedAttributes.
    * One can assign any arbitrary components to an A-Frame entity
    * hence we can't know the list of attributes beforehand.
-   * This function setup a mutation observer to keep track of the entiy attribute changes
+   * This function setup a mutation observer to keep track of the entity attribute changes
    * in the DOM and update components accordingly.
    */
   setupMutationObserver() {
@@ -27321,6 +27322,7 @@ class AScene extends AEntity {
             vrManager.setSession(xrSession).then(function () {
               vrManager.setFoveation(rendererSystem.foveationLevel);
             });
+            rendererSystem.setWebXRFrameRate(xrSession);
             xrSession.addEventListener('end', self.exitVRBound);
             enterVRSuccess(resolve);
           }, function requestFail(error) {
@@ -30203,7 +30205,7 @@ __webpack_require__(/*! ./core/a-mixin */ "./src/core/a-mixin.js");
 // Extras.
 __webpack_require__(/*! ./extras/components/ */ "./src/extras/components/index.js");
 __webpack_require__(/*! ./extras/primitives/ */ "./src/extras/primitives/index.js");
-console.log('A-Frame Version: 1.4.1 (Date 2023-01-04, Commit #5183a179)');
+console.log('A-Frame Version: 1.4.1 (Date 2023-01-18, Commit #aff60284)');
 console.log('THREE Version (https://github.com/supermedium/three.js):', pkg.dependencies['super-three']);
 console.log('WebVR Polyfill Version:', pkg.dependencies['webvr-polyfill']);
 module.exports = window.AFRAME = {
@@ -32394,6 +32396,21 @@ module.exports.System = registerSystem('renderer', {
       colorOrTexture.convertSRGBToLinear();
     } else if (colorOrTexture.isTexture) {
       colorOrTexture.encoding = THREE.sRGBEncoding;
+    }
+  },
+  setWebXRFrameRate: function (xrSession) {
+    var data = this.data;
+    var rates = xrSession.supportedFrameRates;
+    if (rates && xrSession.updateTargetFrameRate) {
+      let targetRate;
+      if (rates.includes(90)) {
+        targetRate = data.highRefreshRate ? 90 : 72;
+      } else {
+        targetRate = data.highRefreshRate ? 72 : 60;
+      }
+      xrSession.updateTargetFrameRate(targetRate).catch(function (error) {
+        console.warn('failed to set target frame rate of ' + targetRate + '. Error info: ' + error);
+      });
     }
   }
 });
@@ -45536,7 +45553,7 @@ class WorkerPool {
 /***/ ((module) => {
 
 "use strict";
-module.exports = JSON.parse('{"name":"aframe","version":"1.4.1","description":"A web framework for building virtual reality experiences.","homepage":"https://aframe.io/","main":"dist/aframe-master.js","scripts":{"dev":"cross-env INSPECTOR_VERSION=dev webpack serve --port 8080","dist":"node scripts/updateVersionLog.js && npm run dist:min && npm run dist:max","dist:max":"webpack --config webpack.config.js","dist:min":"webpack --config webpack.prod.config.js","docs":"markserv --dir docs --port 9001","preghpages":"node ./scripts/preghpages.js","ghpages":"ghpages -p gh-pages/","lint":"semistandard -v | snazzy","lint:fix":"semistandard --fix","precommit":"npm run lint","prepush":"node scripts/testOnlyCheck.js","prerelease":"node scripts/release.js 1.3.0 1.4.0","start":"npm run dev","start:https":"npm run dev -- --server-type https","test":"karma start ./tests/karma.conf.js","test:docs":"node scripts/docsLint.js","test:firefox":"npm test -- --browsers Firefox","test:chrome":"npm test -- --browsers Chrome","test:nobrowser":"NO_BROWSER=true npm test","test:node":"mocha --ui tdd tests/node"},"repository":"aframevr/aframe","license":"MIT","files":["dist/*","docs/**/*","src/**/*","vendor/**/*"],"dependencies":{"buffer":"^6.0.3","custom-event-polyfill":"^1.0.6","debug":"ngokevin/debug#noTimestamp","deep-assign":"^2.0.0","@ungap/custom-elements":"^1.1.0","load-bmfont":"^1.2.3","object-assign":"^4.0.1","present":"0.0.6","promise-polyfill":"^3.1.0","super-animejs":"^3.1.0","super-three":"^0.147.1","three-bmfont-text":"dmarcos/three-bmfont-text#21d017046216e318362c48abd1a48bddfb6e0733","webvr-polyfill":"^0.10.12"},"devDependencies":{"@babel/core":"^7.17.10","babel-loader":"^8.2.5","babel-plugin-istanbul":"^6.1.1","chai":"^4.3.6","chai-shallow-deep-equal":"^1.4.0","chalk":"^1.1.3","cross-env":"^7.0.3","css-loader":"^6.7.1","ghpages":"0.0.8","git-rev":"^0.2.1","glob":"^8.0.3","husky":"^0.11.7","jsdom":"^20.0.0","karma":"^6.4.0","karma-chai-shallow-deep-equal":"0.0.4","karma-chrome-launcher":"^3.1.1","karma-coverage":"^2.2.0","karma-env-preprocessor":"^0.1.1","karma-firefox-launcher":"^2.1.2","karma-mocha":"^2.0.1","karma-mocha-reporter":"^2.2.5","karma-sinon-chai":"^2.0.2","karma-webpack":"^5.0.0","markserv":"github:sukima/markserv#feature/fix-broken-websoketio-link","mocha":"^10.0.0","replace-in-file":"^2.5.3","semistandard":"^9.0.0","shelljs":"^0.7.7","shx":"^0.2.2","sinon":"<12.0.0","sinon-chai":"^3.7.0","snazzy":"^5.0.0","style-loader":"^3.3.1","too-wordy":"ngokevin/too-wordy","webpack":"^5.73.0","webpack-cli":"^4.10.0","webpack-dev-server":"^4.11.0","webpack-merge":"^5.8.0","write-good":"^1.0.8"},"link":true,"semistandard":{"ignore":["build/**","dist/**","examples/**/shaders/*.js","**/vendor/**"]},"keywords":["3d","aframe","cardboard","components","oculus","three","three.js","rift","vive","vr","web-components","webvr"],"engines":{"node":">= 4.6.0","npm":">= 2.15.9"}}');
+module.exports = JSON.parse('{"name":"aframe","version":"1.4.1","description":"A web framework for building virtual reality experiences.","homepage":"https://aframe.io/","main":"dist/aframe-master.js","scripts":{"dev":"cross-env INSPECTOR_VERSION=dev webpack serve --port 8080","dist":"node scripts/updateVersionLog.js && npm run dist:min && npm run dist:max","dist:max":"webpack --config webpack.config.js","dist:min":"webpack --config webpack.prod.config.js","docs":"markserv --dir docs --port 9001","preghpages":"node ./scripts/preghpages.js","ghpages":"ghpages -p gh-pages/","lint":"semistandard -v | snazzy","lint:fix":"semistandard --fix","precommit":"npm run lint","prepush":"node scripts/testOnlyCheck.js","prerelease":"node scripts/release.js 1.4.0 1.4.1","start":"npm run dev","start:https":"npm run dev -- --server-type https","test":"karma start ./tests/karma.conf.js","test:docs":"node scripts/docsLint.js","test:firefox":"npm test -- --browsers Firefox","test:chrome":"npm test -- --browsers Chrome","test:nobrowser":"NO_BROWSER=true npm test","test:node":"mocha --ui tdd tests/node"},"repository":"aframevr/aframe","license":"MIT","files":["dist/*","docs/**/*","src/**/*","vendor/**/*"],"dependencies":{"buffer":"^6.0.3","custom-event-polyfill":"^1.0.6","debug":"ngokevin/debug#noTimestamp","deep-assign":"^2.0.0","@ungap/custom-elements":"^1.1.0","load-bmfont":"^1.2.3","object-assign":"^4.0.1","present":"0.0.6","promise-polyfill":"^3.1.0","super-animejs":"^3.1.0","super-three":"^0.147.1","three-bmfont-text":"dmarcos/three-bmfont-text#21d017046216e318362c48abd1a48bddfb6e0733","webvr-polyfill":"^0.10.12"},"devDependencies":{"@babel/core":"^7.17.10","babel-loader":"^8.2.5","babel-plugin-istanbul":"^6.1.1","chai":"^4.3.6","chai-shallow-deep-equal":"^1.4.0","chalk":"^1.1.3","cross-env":"^7.0.3","css-loader":"^6.7.1","ghpages":"0.0.8","git-rev":"^0.2.1","glob":"^8.0.3","husky":"^0.11.7","jsdom":"^20.0.0","karma":"^6.4.0","karma-chai-shallow-deep-equal":"0.0.4","karma-chrome-launcher":"^3.1.1","karma-coverage":"^2.2.0","karma-env-preprocessor":"^0.1.1","karma-firefox-launcher":"^2.1.2","karma-mocha":"^2.0.1","karma-mocha-reporter":"^2.2.5","karma-sinon-chai":"^2.0.2","karma-webpack":"^5.0.0","markserv":"github:sukima/markserv#feature/fix-broken-websoketio-link","mocha":"^10.0.0","replace-in-file":"^2.5.3","semistandard":"^9.0.0","shelljs":"^0.7.7","shx":"^0.2.2","sinon":"<12.0.0","sinon-chai":"^3.7.0","snazzy":"^5.0.0","style-loader":"^3.3.1","too-wordy":"ngokevin/too-wordy","webpack":"^5.73.0","webpack-cli":"^4.10.0","webpack-dev-server":"^4.11.0","webpack-merge":"^5.8.0","write-good":"^1.0.8"},"link":true,"semistandard":{"ignore":["build/**","dist/**","examples/**/shaders/*.js","**/vendor/**"]},"keywords":["3d","aframe","cardboard","components","oculus","three","three.js","rift","vive","vr","quest","meta","web-components","webvr","webxr"],"engines":{"node":">= 4.6.0","npm":">= 2.15.9"}}');
 
 /***/ })
 
