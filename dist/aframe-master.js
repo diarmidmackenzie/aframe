@@ -27322,7 +27322,7 @@ class AScene extends AEntity {
             vrManager.setSession(xrSession).then(function () {
               vrManager.setFoveation(rendererSystem.foveationLevel);
             });
-            this.sceneEl.systems.renderer.setWebXRFrameRate(xrSession);
+            self.systems.renderer.setWebXRFrameRate(xrSession);
             xrSession.addEventListener('end', self.exitVRBound);
             enterVRSuccess(resolve);
           }, function requestFail(error) {
@@ -30205,7 +30205,7 @@ __webpack_require__(/*! ./core/a-mixin */ "./src/core/a-mixin.js");
 // Extras.
 __webpack_require__(/*! ./extras/components/ */ "./src/extras/components/index.js");
 __webpack_require__(/*! ./extras/primitives/ */ "./src/extras/primitives/index.js");
-console.log('A-Frame Version: 1.4.1 (Date 2023-01-19, Commit #1bd3f5c3)');
+console.log('A-Frame Version: 1.4.1 (Date 2023-01-19, Commit #ce03f9f1)');
 console.log('THREE Version (https://github.com/supermedium/three.js):', pkg.dependencies['super-three']);
 console.log('WebVR Polyfill Version:', pkg.dependencies['webvr-polyfill']);
 module.exports = window.AFRAME = {
