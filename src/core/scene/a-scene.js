@@ -301,7 +301,7 @@ class AScene extends AEntity {
               vrManager.setSession(xrSession).then(function () {
                 vrManager.setFoveation(rendererSystem.foveationLevel);
               });
-              rendererSystem.setWebXRFrameRate(xrSession);
+              this.sceneEl.systems.renderer.setWebXRFrameRate(xrSession);
               xrSession.addEventListener('end', self.exitVRBound);
               enterVRSuccess(resolve);
             },
