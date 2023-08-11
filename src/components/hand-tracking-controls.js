@@ -51,7 +51,10 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
   schema: {
     hand: {default: 'right', oneOf: ['left', 'right']},
     modelStyle: {default: 'mesh', oneOf: ['dots', 'mesh']},
-    modelColor: {default: 'white'}
+    modelColor: {default: 'white'},
+    scale: {default: 1},
+    wristAdjustment: {default: 0}
+
   },
 
   bindMethods: function () {
@@ -85,6 +88,7 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
     this.isPinched = false;
     this.pinchEventDetail = {position: new THREE.Vector3()};
     this.indexTipPosition = new THREE.Vector3();
+    this.wristAdjustment = new THREE.Vector3();
 
     this.hasPoses = false;
     this.jointPoses = new Float32Array(16 * JOINTS.length);
@@ -167,11 +171,12 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
     return function () {
       var jointPoses = this.jointPoses;
       var controller = this.el.components['tracked-controls'] && this.el.components['tracked-controls'].controller;
-      var i = 0;
-
       if (!controller || !this.mesh) { return; }
       this.mesh.visible = false;
       if (!this.hasPoses) { return; }
+      var i = 0;
+      var scale = this.data.scale;
+      var wristAdjustmentDistance = this.data.wristAdjustment;
       for (var inputjoint of controller.hand.values()) {
         var bone = this.getBone(inputjoint.jointName);
         if (bone != null) {
@@ -179,6 +184,19 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
           jointPose.fromArray(jointPoses, i * 16);
           bone.position.setFromMatrixPosition(jointPose);
           bone.quaternion.setFromRotationMatrix(jointPose);
+          var wristPosition;
+          var wristAdjustment = this.wristAdjustment;
+          if (inputjoint.jointName === 'wrist') {
+            wristPosition = bone.position;
+            wristAdjustment.set(0, 0, wristAdjustmentDistance);
+            wristAdjustment.applyQuaternion(bone.quaternion);
+          } else {
+            var position = bone.position;
+            position.sub(wristPosition);
+            position.multiplyScalar(scale);
+            position.add(wristPosition);
+          }
+          bone.position.add(wristAdjustment);
         }
         i++;
       }
