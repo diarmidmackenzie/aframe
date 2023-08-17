@@ -184,6 +184,7 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
           jointPose.fromArray(jointPoses, i * 16);
           bone.position.setFromMatrixPosition(jointPose);
           bone.quaternion.setFromRotationMatrix(jointPose);
+          bone.scale.set(scale, scale, scale);
           var wristPosition;
           var wristAdjustment = this.wristAdjustment;
           if (inputjoint.jointName === 'wrist') {
