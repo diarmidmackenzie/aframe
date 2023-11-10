@@ -14204,7 +14204,6 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
       if (!this.hasPoses) {
         return;
       }
-      var i = 0;
       var scale = this.data.scale;
       var wristAdjustmentDistance = this.data.wristAdjustment;
       for (var inputjoint of controller.hand.values()) {
@@ -30477,7 +30476,7 @@ __webpack_require__(/*! ./core/a-mixin */ "./src/core/a-mixin.js");
 // Extras.
 __webpack_require__(/*! ./extras/components/ */ "./src/extras/components/index.js");
 __webpack_require__(/*! ./extras/primitives/ */ "./src/extras/primitives/index.js");
-console.log('A-Frame Version: 1.4.2 (Date 2023-11-10, Commit #6bbe905b)');
+console.log('A-Frame Version: 1.4.2 (Date 2023-11-10, Commit #21fbb844)');
 console.log('THREE Version (https://github.com/supermedium/three.js):', pkg.dependencies['super-three']);
 console.log('WebVR Polyfill Version:', pkg.dependencies['webvr-polyfill']);
 module.exports = window.AFRAME = {
