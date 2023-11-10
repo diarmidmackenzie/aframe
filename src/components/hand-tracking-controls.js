@@ -198,7 +198,6 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
       if (!controller || !this.mesh) { return; }
       this.mesh.visible = false;
       if (!this.hasPoses) { return; }
-      var i = 0;
       var scale = this.data.scale;
       var wristAdjustmentDistance = this.data.wristAdjustment;
       for (var inputjoint of controller.hand.values()) {
