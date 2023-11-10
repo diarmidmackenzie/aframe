@@ -89,7 +89,7 @@ class AScene extends AEntity {
     this.setAttribute('inspector', '');
     this.setAttribute('keyboard-shortcuts', '');
     this.setAttribute('screenshot', '');
-    this.setAttribute('vr-mode-ui', '');
+    this.setAttribute('xr-mode-ui', '');
     this.setAttribute('device-orientation-permission-ui', '');
     super.connectedCallback();
 
@@ -610,6 +610,10 @@ class AScene extends AEntity {
         rendererConfig.alpha = rendererAttr.alpha === 'true';
       }
 
+      if (rendererAttr.multiviewStereo) {
+        rendererConfig.multiviewStereo = rendererAttr.multiviewStereo === 'true';
+      }
+
       this.maxCanvasSize = {
         width: rendererAttr.maxCanvasWidth
           ? parseInt(rendererAttr.maxCanvasWidth)
@@ -622,7 +626,7 @@ class AScene extends AEntity {
 
     renderer = this.renderer = new THREE.WebGLRenderer(rendererConfig);
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.sortObjects = false;
+
     if (this.camera) { renderer.xr.setPoseTarget(this.camera.el.object3D); }
     this.addEventListener('camera-set-active', function () {
       renderer.xr.setPoseTarget(self.camera.el.object3D);

@@ -4,7 +4,7 @@ var utils = require('index').utils;
 
 var UI_CLASSES = ['.a-orientation-modal', '.a-enter-vr-button'];
 
-suite('vr-mode-ui', function () {
+suite('xr-mode-ui', function () {
   setup(function (done) {
     this.entityEl = entityFactory();
     var el = this.el = this.entityEl.parentNode;
@@ -25,7 +25,7 @@ suite('vr-mode-ui', function () {
 
   test('can disable UI', function () {
     var scene = this.el;
-    scene.setAttribute('vr-mode-ui', 'enabled', false);
+    scene.setAttribute('xr-mode-ui', 'enabled', false);
     UI_CLASSES.forEach(function (uiClass) {
       assert.notOk(scene.querySelector(uiClass));
     });

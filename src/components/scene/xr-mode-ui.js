@@ -5,15 +5,16 @@ var bind = utils.bind;
 
 var ENTER_VR_CLASS = 'a-enter-vr';
 var ENTER_AR_CLASS = 'a-enter-ar';
+
 var ENTER_VR_BTN_CLASS = 'a-enter-vr-button';
 var ENTER_AR_BTN_CLASS = 'a-enter-ar-button';
 var HIDDEN_CLASS = 'a-hidden';
 var ORIENTATION_MODAL_CLASS = 'a-orientation-modal';
 
 /**
- * UI for entering VR mode.
+ * UI for Aentering VR mode.
  */
-module.exports.Component = registerComponent('vr-mode-ui', {
+module.exports.Component = registerComponent('xr-mode-ui', {
   dependencies: ['canvas'],
 
   schema: {
@@ -22,7 +23,8 @@ module.exports.Component = registerComponent('vr-mode-ui', {
     enterVRButton: {default: ''},
     enterVREnabled: {default: true},
     enterARButton: {default: ''},
-    enterAREnabled: {default: false}
+    enterAREnabled: {default: true},
+    XRMode: {default: 'vr', oneOf: ['vr', 'ar', 'xr']}
   },
 
   init: function () {
@@ -34,6 +36,7 @@ module.exports.Component = registerComponent('vr-mode-ui', {
     this.insideLoader = false;
     this.enterVREl = null;
     this.enterAREl = null;
+
     this.orientationModalEl = null;
     this.bindMethods();
 
@@ -93,7 +96,7 @@ module.exports.Component = registerComponent('vr-mode-ui', {
     if (this.enterVREl || this.enterAREl || this.orientationModalEl) { return; }
 
     // Add UI if enabled and not already present.
-    if (!this.enterVREl && data.enterVREnabled) {
+    if (!this.enterVREl && data.enterVREnabled && (data.XRMode === 'xr' || data.XRMode === 'vr')) {
       if (data.enterVRButton) {
         // Custom button.
         this.enterVREl = document.querySelector(data.enterVRButton);
@@ -104,13 +107,13 @@ module.exports.Component = registerComponent('vr-mode-ui', {
       }
     }
 
-    if (!this.enterAREl && data.enterAREnabled) {
+    if (!this.enterAREl && data.enterAREnabled && (data.XRMode === 'xr' || data.XRMode === 'ar')) {
       if (data.enterARButton) {
         // Custom button.
         this.enterAREl = document.querySelector(data.enterARButton);
         this.enterAREl.addEventListener('click', this.onEnterARButtonClick);
       } else {
-        this.enterAREl = createEnterARButton(this.onEnterARButtonClick);
+        this.enterAREl = createEnterARButton(this.onEnterARButtonClick, data.XRMode === 'xr');
         sceneEl.appendChild(this.enterAREl);
       }
     }
@@ -213,13 +216,14 @@ function createEnterVRButton (onClick) {
  * @param {function} onClick - click event handler
  * @returns {Element} Wrapper <div>.
  */
-function createEnterARButton (onClick) {
+function createEnterARButton (onClick, xrMode) {
   var arButton;
   var wrapper;
 
   // Create elements.
   wrapper = document.createElement('div');
   wrapper.classList.add(ENTER_AR_CLASS);
+  if (xrMode) { wrapper.classList.add('xr'); }
   wrapper.setAttribute(constants.AFRAME_INJECTED, '');
   arButton = document.createElement('button');
   arButton.className = ENTER_AR_BTN_CLASS;

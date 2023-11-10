@@ -11714,6 +11714,168 @@ function extend() {
 
 /***/ }),
 
+/***/ "./src/components/anchored.js":
+/*!************************************!*\
+  !*** ./src/components/anchored.js ***!
+  \************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+/* global THREE, XRRigidTransform, localStorage */
+var registerComponent = (__webpack_require__(/*! ../core/component */ "./src/core/component.js").registerComponent);
+var utils = __webpack_require__(/*! ../utils/ */ "./src/utils/index.js");
+var warn = utils.debug('components:anchored:warn');
+
+/**
+ * Anchored component.
+ * Feature only available in browsers that implement the WebXR anchors module.
+ * Once anchored the entity remains to a fixed position in real-world space.
+ * If the anchor is persistent, the anchor positioned remains across sessions or until the browser data is cleared.
+ */
+module.exports.Component = registerComponent('anchored', {
+  schema: {
+    persistent: {
+      default: false
+    }
+  },
+  init: function () {
+    var sceneEl = this.el.sceneEl;
+    var webxrData = sceneEl.getAttribute('webxr');
+    var optionalFeaturesArray = webxrData.optionalFeatures;
+    if (optionalFeaturesArray.indexOf('anchors') === -1) {
+      optionalFeaturesArray.push('anchors');
+      this.el.sceneEl.setAttribute('webxr', webxrData);
+    }
+    this.auxQuaternion = new THREE.Quaternion();
+    this.onEnterVR = this.onEnterVR.bind(this);
+    this.el.sceneEl.addEventListener('enter-vr', this.onEnterVR);
+  },
+  onEnterVR: function () {
+    this.anchor = undefined;
+    this.requestPersistentAnchorPending = this.data.persistent;
+    this.requestAnchorPending = !this.data.persistent;
+  },
+  tick: function () {
+    var sceneEl = this.el.sceneEl;
+    var xrManager = sceneEl.renderer.xr;
+    var frame;
+    var refSpace;
+    var pose;
+    var object3D = this.el.object3D;
+    if (!sceneEl.is('ar-mode') && !sceneEl.is('vr-mode')) {
+      return;
+    }
+    if (!this.anchor && this.requestPersistentAnchorPending) {
+      this.restorePersistentAnchor();
+    }
+    if (!this.anchor && this.requestAnchorPending) {
+      this.createAnchor();
+    }
+    if (!this.anchor) {
+      return;
+    }
+    frame = sceneEl.frame;
+    refSpace = xrManager.getReferenceSpace();
+    pose = frame.getPose(this.anchor.anchorSpace, refSpace);
+    object3D.matrix.elements = pose.transform.matrix;
+    object3D.matrix.decompose(object3D.position, object3D.rotation, object3D.scale);
+  },
+  createAnchor: async function createAnchor(position, quaternion) {
+    var sceneEl = this.el.sceneEl;
+    var xrManager = sceneEl.renderer.xr;
+    var frame;
+    var referenceSpace;
+    var anchorPose;
+    var anchor;
+    var object3D = this.el.object3D;
+    position = position || object3D.position;
+    quaternion = quaternion || this.auxQuaternion.setFromEuler(object3D.rotation);
+    if (!anchorsSupported(sceneEl)) {
+      warn('This browser doesn\'t support the WebXR anchors module');
+      return;
+    }
+    if (this.anchor) {
+      this.deleteAnchor();
+    }
+    frame = sceneEl.frame;
+    referenceSpace = xrManager.getReferenceSpace();
+    anchorPose = new XRRigidTransform({
+      x: position.x,
+      y: position.y,
+      z: position.z
+    }, {
+      x: quaternion.x,
+      y: quaternion.y,
+      z: quaternion.z,
+      w: quaternion.w
+    });
+    this.requestAnchorPending = false;
+    anchor = await frame.createAnchor(anchorPose, referenceSpace);
+    if (this.data.persistent) {
+      if (this.el.id) {
+        this.persistentHandle = await anchor.requestPersistentHandle();
+        localStorage.setItem(this.el.id, this.persistentHandle);
+      } else {
+        warn('The anchor won\'t be persisted because the entity has no assigned id.');
+      }
+    }
+    sceneEl.object3D.attach(this.el.object3D);
+    this.anchor = anchor;
+  },
+  restorePersistentAnchor: async function restorePersistentAnchor() {
+    var xrManager = this.el.sceneEl.renderer.xr;
+    var session = xrManager.getSession();
+    var persistentAnchors = session.persistentAnchors;
+    var storedPersistentHandle;
+    this.requestPersistentAnchorPending = false;
+    if (!this.el.id) {
+      warn('The entity associated to the persistent anchor cannot be retrieved because it doesn\'t have an assigned id.');
+      this.requestAnchorPending = true;
+      return;
+    }
+    if (persistentAnchors) {
+      storedPersistentHandle = localStorage.getItem(this.el.id);
+      for (var i = 0; i < persistentAnchors.length; ++i) {
+        if (storedPersistentHandle !== persistentAnchors[i]) {
+          continue;
+        }
+        this.anchor = await session.restorePersistentAnchor(persistentAnchors[i]);
+        if (this.anchor) {
+          this.persistentHandle = persistentAnchors[i];
+        }
+        break;
+      }
+      if (!this.anchor) {
+        this.requestAnchorPending = true;
+      }
+    } else {
+      this.requestPersistentAnchorPending = true;
+    }
+  },
+  deleteAnchor: function () {
+    var xrManager;
+    var session;
+    var anchor = this.anchor;
+    if (!anchor) {
+      return;
+    }
+    xrManager = this.el.sceneEl.renderer.xr;
+    session = xrManager.getSession();
+    anchor.delete();
+    this.el.sceneEl.object3D.add(this.el.object3D);
+    if (this.persistentHandle) {
+      session.deletePersistentAnchor(this.persistentHandle);
+    }
+    this.anchor = undefined;
+  }
+});
+function anchorsSupported(sceneEl) {
+  var xrManager = sceneEl.renderer.xr;
+  var session = xrManager.getSession();
+  return session && session.restorePersistentAnchor;
+}
+
+/***/ }),
+
 /***/ "./src/components/animation.js":
 /*!*************************************!*\
   !*** ./src/components/animation.js ***!
@@ -12976,469 +13138,6 @@ module.exports.Component = registerComponent('cursor', {
 
 /***/ }),
 
-/***/ "./src/components/daydream-controls.js":
-/*!*********************************************!*\
-  !*** ./src/components/daydream-controls.js ***!
-  \*********************************************/
-/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
-
-var registerComponent = (__webpack_require__(/*! ../core/component */ "./src/core/component.js").registerComponent);
-var bind = __webpack_require__(/*! ../utils/bind */ "./src/utils/bind.js");
-var trackedControlsUtils = __webpack_require__(/*! ../utils/tracked-controls */ "./src/utils/tracked-controls.js");
-var checkControllerPresentAndSetup = trackedControlsUtils.checkControllerPresentAndSetup;
-var emitIfAxesChanged = trackedControlsUtils.emitIfAxesChanged;
-var onButtonEvent = trackedControlsUtils.onButtonEvent;
-var AFRAME_CDN_ROOT = (__webpack_require__(/*! ../constants */ "./src/constants/index.js").AFRAME_CDN_ROOT);
-var DAYDREAM_CONTROLLER_MODEL_BASE_URL = AFRAME_CDN_ROOT + 'controllers/google/';
-var DAYDREAM_CONTROLLER_MODEL_OBJ_URL = DAYDREAM_CONTROLLER_MODEL_BASE_URL + 'vr_controller_daydream.obj';
-var DAYDREAM_CONTROLLER_MODEL_OBJ_MTL = DAYDREAM_CONTROLLER_MODEL_BASE_URL + 'vr_controller_daydream.mtl';
-var isWebXRAvailable = (__webpack_require__(/*! ../utils/ */ "./src/utils/index.js").device.isWebXRAvailable);
-var GAMEPAD_ID_WEBXR = 'google-daydream';
-var GAMEPAD_ID_WEBVR = 'Daydream Controller';
-var GAMEPAD_ID_PREFIX = isWebXRAvailable ? GAMEPAD_ID_WEBXR : GAMEPAD_ID_WEBVR;
-
-/**
- * Button indices:
- * 0 - trackpad
- * 1 - menu (never dispatched on this layer)
- * 2 - system (never dispatched on this layer)
- *
- * Axis:
- * 0 - trackpad x
- * 1 - trackpad y
- */
-var INPUT_MAPPING_WEBVR = {
-  axes: {
-    trackpad: [0, 1]
-  },
-  buttons: ['trackpad', 'menu', 'system']
-};
-
-/**
- * Button indices:
- * 0 - none
- * 1 - none
- * 2 - touchpad
- *
- * Axis:
- * 0 - touchpad x
- * 1 - touchpad y
- * Reference: https://github.com/immersive-web/webxr-input-profiles/blob/master/packages/registry/profiles/google/google-daydream.json
- */
-var INPUT_MAPPING_WEBXR = {
-  axes: {
-    touchpad: [0, 1]
-  },
-  buttons: ['none', 'none', 'touchpad', 'menu', 'system']
-};
-var INPUT_MAPPING = isWebXRAvailable ? INPUT_MAPPING_WEBXR : INPUT_MAPPING_WEBVR;
-
-/**
- * Daydream controls.
- * Interface with Daydream controller and map Gamepad events to
- * controller buttons: trackpad, menu, system
- * Load a controller model and highlight the pressed buttons.
- */
-module.exports.Component = registerComponent('daydream-controls', {
-  schema: {
-    hand: {
-      default: ''
-    },
-    // This informs the degenerate arm model.
-    buttonColor: {
-      type: 'color',
-      default: '#000000'
-    },
-    buttonTouchedColor: {
-      type: 'color',
-      default: '#777777'
-    },
-    buttonHighlightColor: {
-      type: 'color',
-      default: '#FFFFFF'
-    },
-    model: {
-      default: true
-    },
-    orientationOffset: {
-      type: 'vec3'
-    },
-    armModel: {
-      default: true
-    }
-  },
-  mapping: INPUT_MAPPING,
-  bindMethods: function () {
-    this.onModelLoaded = bind(this.onModelLoaded, this);
-    this.onControllersUpdate = bind(this.onControllersUpdate, this);
-    this.checkIfControllerPresent = bind(this.checkIfControllerPresent, this);
-    this.removeControllersUpdateListener = bind(this.removeControllersUpdateListener, this);
-    this.onAxisMoved = bind(this.onAxisMoved, this);
-  },
-  init: function () {
-    var self = this;
-    this.onButtonChanged = bind(this.onButtonChanged, this);
-    this.onButtonDown = function (evt) {
-      onButtonEvent(evt.detail.id, 'down', self);
-    };
-    this.onButtonUp = function (evt) {
-      onButtonEvent(evt.detail.id, 'up', self);
-    };
-    this.onButtonTouchStart = function (evt) {
-      onButtonEvent(evt.detail.id, 'touchstart', self);
-    };
-    this.onButtonTouchEnd = function (evt) {
-      onButtonEvent(evt.detail.id, 'touchend', self);
-    };
-    this.controllerPresent = false;
-    this.lastControllerCheck = 0;
-    this.bindMethods();
-  },
-  addEventListeners: function () {
-    var el = this.el;
-    el.addEventListener('buttonchanged', this.onButtonChanged);
-    el.addEventListener('buttondown', this.onButtonDown);
-    el.addEventListener('buttonup', this.onButtonUp);
-    el.addEventListener('touchstart', this.onButtonTouchStart);
-    el.addEventListener('touchend', this.onButtonTouchEnd);
-    el.addEventListener('model-loaded', this.onModelLoaded);
-    el.addEventListener('axismove', this.onAxisMoved);
-    this.controllerEventsActive = true;
-  },
-  removeEventListeners: function () {
-    var el = this.el;
-    el.removeEventListener('buttonchanged', this.onButtonChanged);
-    el.removeEventListener('buttondown', this.onButtonDown);
-    el.removeEventListener('buttonup', this.onButtonUp);
-    el.removeEventListener('touchstart', this.onButtonTouchStart);
-    el.removeEventListener('touchend', this.onButtonTouchEnd);
-    el.removeEventListener('model-loaded', this.onModelLoaded);
-    el.removeEventListener('axismove', this.onAxisMoved);
-    this.controllerEventsActive = false;
-  },
-  checkIfControllerPresent: function () {
-    checkControllerPresentAndSetup(this, GAMEPAD_ID_PREFIX, this.data.hand ? {
-      hand: this.data.hand
-    } : {});
-  },
-  play: function () {
-    this.checkIfControllerPresent();
-    this.addControllersUpdateListener();
-  },
-  pause: function () {
-    this.removeEventListeners();
-    this.removeControllersUpdateListener();
-  },
-  injectTrackedControls: function () {
-    var el = this.el;
-    var data = this.data;
-    el.setAttribute('tracked-controls', {
-      armModel: data.armModel,
-      hand: data.hand,
-      idPrefix: GAMEPAD_ID_PREFIX,
-      id: GAMEPAD_ID_PREFIX,
-      orientationOffset: data.orientationOffset
-    });
-    if (!this.data.model) {
-      return;
-    }
-    this.el.setAttribute('obj-model', {
-      obj: DAYDREAM_CONTROLLER_MODEL_OBJ_URL,
-      mtl: DAYDREAM_CONTROLLER_MODEL_OBJ_MTL
-    });
-  },
-  addControllersUpdateListener: function () {
-    this.el.sceneEl.addEventListener('controllersupdated', this.onControllersUpdate, false);
-  },
-  removeControllersUpdateListener: function () {
-    this.el.sceneEl.removeEventListener('controllersupdated', this.onControllersUpdate, false);
-  },
-  onControllersUpdate: function () {
-    this.checkIfControllerPresent();
-  },
-  onModelLoaded: function (evt) {
-    var controllerObject3D = evt.detail.model;
-    var buttonMeshes;
-    if (!this.data.model) {
-      return;
-    }
-    buttonMeshes = this.buttonMeshes = {};
-    buttonMeshes.menu = controllerObject3D.getObjectByName('AppButton_AppButton_Cylinder.004');
-    buttonMeshes.system = controllerObject3D.getObjectByName('HomeButton_HomeButton_Cylinder.005');
-    buttonMeshes.trackpad = controllerObject3D.getObjectByName('TouchPad_TouchPad_Cylinder.003');
-    buttonMeshes.touchpad = controllerObject3D.getObjectByName('TouchPad_TouchPad_Cylinder.003');
-    // Offset pivot point.
-    controllerObject3D.position.set(0, 0, -0.04);
-  },
-  onAxisMoved: function (evt) {
-    emitIfAxesChanged(this, this.mapping.axes, evt);
-  },
-  onButtonChanged: function (evt) {
-    var button = this.mapping.buttons[evt.detail.id];
-    if (!button) return;
-    // Pass along changed event with button state, using button mapping for convenience.
-    this.el.emit(button + 'changed', evt.detail.state);
-  },
-  updateModel: function (buttonName, evtName) {
-    if (!this.data.model) {
-      return;
-    }
-    this.updateButtonModel(buttonName, evtName);
-  },
-  updateButtonModel: function (buttonName, state) {
-    var buttonMeshes = this.buttonMeshes;
-    if (!buttonMeshes || !buttonMeshes[buttonName]) {
-      return;
-    }
-    var color;
-    switch (state) {
-      case 'down':
-        color = this.data.buttonHighlightColor;
-        break;
-      case 'touchstart':
-        color = this.data.buttonTouchedColor;
-        break;
-      default:
-        color = this.data.buttonColor;
-    }
-    buttonMeshes[buttonName].material.color.set(color);
-  }
-});
-
-/***/ }),
-
-/***/ "./src/components/gearvr-controls.js":
-/*!*******************************************!*\
-  !*** ./src/components/gearvr-controls.js ***!
-  \*******************************************/
-/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
-
-var registerComponent = (__webpack_require__(/*! ../core/component */ "./src/core/component.js").registerComponent);
-var bind = __webpack_require__(/*! ../utils/bind */ "./src/utils/bind.js");
-var trackedControlsUtils = __webpack_require__(/*! ../utils/tracked-controls */ "./src/utils/tracked-controls.js");
-var checkControllerPresentAndSetup = trackedControlsUtils.checkControllerPresentAndSetup;
-var emitIfAxesChanged = trackedControlsUtils.emitIfAxesChanged;
-var onButtonEvent = trackedControlsUtils.onButtonEvent;
-var isWebXRAvailable = (__webpack_require__(/*! ../utils/ */ "./src/utils/index.js").device.isWebXRAvailable);
-var AFRAME_CDN_ROOT = (__webpack_require__(/*! ../constants */ "./src/constants/index.js").AFRAME_CDN_ROOT);
-var GEARVR_CONTROLLER_MODEL_BASE_URL = AFRAME_CDN_ROOT + 'controllers/samsung/';
-var GEARVR_CONTROLLER_MODEL_OBJ_URL = GEARVR_CONTROLLER_MODEL_BASE_URL + 'gear_vr_controller.obj';
-var GEARVR_CONTROLLER_MODEL_OBJ_MTL = GEARVR_CONTROLLER_MODEL_BASE_URL + 'gear_vr_controller.mtl';
-var GAMEPAD_ID_WEBXR = 'samsung-gearvr';
-var GAMEPAD_ID_WEBVR = 'Gear VR';
-
-// Prefix for Gen1 and Gen2 Oculus Touch Controllers.
-var GAMEPAD_ID_PREFIX = isWebXRAvailable ? GAMEPAD_ID_WEBXR : GAMEPAD_ID_WEBVR;
-
-/**
- * Button indices:
- * 0 - trackpad
- * 1 - trigger
- *
- * Axis:
- * 0 - trackpad x
- * 1 - trackpad y
- */
-var INPUT_MAPPING_WEBVR = {
-  axes: {
-    trackpad: [0, 1]
-  },
-  buttons: ['trackpad', 'trigger']
-};
-
-/**
- * Button indices:
- * 0 - trigger
- * 1 - none
- * 2 - touchpad
- * 3 - menu
- *
- * Axis:
- * 0 - touchpad x
- * 1 - touchpad y
- * Reference: https://github.com/immersive-web/webxr-input-profiles/blob/master/packages/registry/profiles/samsung/samsung-gearvr.json
- */
-var INPUT_MAPPING_WEBXR = {
-  axes: {
-    touchpad: [0, 1]
-  },
-  buttons: ['trigger', 'none', 'touchpad', 'none', 'menu']
-};
-var INPUT_MAPPING = isWebXRAvailable ? INPUT_MAPPING_WEBXR : INPUT_MAPPING_WEBVR;
-
-/**
- * Gear VR controls.
- * Interface with Gear VR controller and map Gamepad events to
- * controller buttons: trackpad, trigger
- * Load a controller model and highlight the pressed buttons.
- */
-module.exports.Component = registerComponent('gearvr-controls', {
-  schema: {
-    hand: {
-      default: ''
-    },
-    // This informs the degenerate arm model.
-    buttonColor: {
-      type: 'color',
-      default: '#000000'
-    },
-    buttonTouchedColor: {
-      type: 'color',
-      default: '#777777'
-    },
-    buttonHighlightColor: {
-      type: 'color',
-      default: '#FFFFFF'
-    },
-    model: {
-      default: true
-    },
-    orientationOffset: {
-      type: 'vec3'
-    },
-    armModel: {
-      default: true
-    }
-  },
-  mapping: INPUT_MAPPING,
-  bindMethods: function () {
-    this.onModelLoaded = bind(this.onModelLoaded, this);
-    this.onControllersUpdate = bind(this.onControllersUpdate, this);
-    this.checkIfControllerPresent = bind(this.checkIfControllerPresent, this);
-    this.removeControllersUpdateListener = bind(this.removeControllersUpdateListener, this);
-    this.onAxisMoved = bind(this.onAxisMoved, this);
-  },
-  init: function () {
-    var self = this;
-    this.onButtonChanged = bind(this.onButtonChanged, this);
-    this.onButtonDown = function (evt) {
-      onButtonEvent(evt.detail.id, 'down', self);
-    };
-    this.onButtonUp = function (evt) {
-      onButtonEvent(evt.detail.id, 'up', self);
-    };
-    this.onButtonTouchStart = function (evt) {
-      onButtonEvent(evt.detail.id, 'touchstart', self);
-    };
-    this.onButtonTouchEnd = function (evt) {
-      onButtonEvent(evt.detail.id, 'touchend', self);
-    };
-    this.controllerPresent = false;
-    this.lastControllerCheck = 0;
-    this.bindMethods();
-  },
-  addEventListeners: function () {
-    var el = this.el;
-    el.addEventListener('buttonchanged', this.onButtonChanged);
-    el.addEventListener('buttondown', this.onButtonDown);
-    el.addEventListener('buttonup', this.onButtonUp);
-    el.addEventListener('touchstart', this.onButtonTouchStart);
-    el.addEventListener('touchend', this.onButtonTouchEnd);
-    el.addEventListener('model-loaded', this.onModelLoaded);
-    el.addEventListener('axismove', this.onAxisMoved);
-    this.controllerEventsActive = true;
-  },
-  removeEventListeners: function () {
-    var el = this.el;
-    el.removeEventListener('buttonchanged', this.onButtonChanged);
-    el.removeEventListener('buttondown', this.onButtonDown);
-    el.removeEventListener('buttonup', this.onButtonUp);
-    el.removeEventListener('touchstart', this.onButtonTouchStart);
-    el.removeEventListener('touchend', this.onButtonTouchEnd);
-    el.removeEventListener('model-loaded', this.onModelLoaded);
-    el.removeEventListener('axismove', this.onAxisMoved);
-    this.controllerEventsActive = false;
-  },
-  checkIfControllerPresent: function () {
-    checkControllerPresentAndSetup(this, GAMEPAD_ID_PREFIX, this.data.hand ? {
-      hand: this.data.hand
-    } : {});
-  },
-  play: function () {
-    this.checkIfControllerPresent();
-    this.addControllersUpdateListener();
-  },
-  pause: function () {
-    this.removeEventListeners();
-    this.removeControllersUpdateListener();
-  },
-  injectTrackedControls: function () {
-    var el = this.el;
-    var data = this.data;
-    el.setAttribute('tracked-controls', {
-      armModel: data.armModel,
-      hand: data.hand,
-      idPrefix: GAMEPAD_ID_PREFIX,
-      id: GAMEPAD_ID_PREFIX,
-      orientationOffset: data.orientationOffset
-    });
-    if (!this.data.model) {
-      return;
-    }
-    this.el.setAttribute('obj-model', {
-      obj: GEARVR_CONTROLLER_MODEL_OBJ_URL,
-      mtl: GEARVR_CONTROLLER_MODEL_OBJ_MTL
-    });
-  },
-  addControllersUpdateListener: function () {
-    this.el.sceneEl.addEventListener('controllersupdated', this.onControllersUpdate, false);
-  },
-  removeControllersUpdateListener: function () {
-    this.el.sceneEl.removeEventListener('controllersupdated', this.onControllersUpdate, false);
-  },
-  onControllersUpdate: function () {
-    this.checkIfControllerPresent();
-  },
-  // No need for onButtonChanged, since Gear VR controller has no analog buttons.
-
-  onModelLoaded: function (evt) {
-    var controllerObject3D = evt.detail.model;
-    var buttonMeshes;
-    if (!this.data.model) {
-      return;
-    }
-    buttonMeshes = this.buttonMeshes = {};
-    buttonMeshes.trigger = controllerObject3D.children[2];
-    buttonMeshes.trackpad = controllerObject3D.children[1];
-    buttonMeshes.touchpad = controllerObject3D.children[1];
-  },
-  onButtonChanged: function (evt) {
-    var button = this.mapping.buttons[evt.detail.id];
-    if (!button) return;
-    // Pass along changed event with button state, using button mapping for convenience.
-    this.el.emit(button + 'changed', evt.detail.state);
-  },
-  onAxisMoved: function (evt) {
-    emitIfAxesChanged(this, this.mapping.axes, evt);
-  },
-  updateModel: function (buttonName, evtName) {
-    if (!this.data.model) {
-      return;
-    }
-    this.updateButtonModel(buttonName, evtName);
-  },
-  updateButtonModel: function (buttonName, state) {
-    var buttonMeshes = this.buttonMeshes;
-    if (!buttonMeshes || !buttonMeshes[buttonName]) {
-      return;
-    }
-    var color;
-    switch (state) {
-      case 'down':
-        color = this.data.buttonHighlightColor;
-        break;
-      case 'touchstart':
-        color = this.data.buttonTouchedColor;
-        break;
-      default:
-        color = this.data.buttonColor;
-    }
-    buttonMeshes[buttonName].material.color.set(color);
-  }
-});
-
-/***/ }),
-
 /***/ "./src/components/generic-tracked-controller-controls.js":
 /*!***************************************************************!*\
   !*** ./src/components/generic-tracked-controller-controls.js ***!
@@ -13531,7 +13230,7 @@ module.exports.Component = registerComponent('generic-tracked-controller-control
     this.bindMethods();
 
     // generic-tracked-controller-controls has the lowest precedence.
-    // We must diable this component if there are more specialized controls components.
+    // Disable this component if there are more specialized controls components.
     this.el.addEventListener('controllerconnected', function (evt) {
       if (evt.detail.name === self.name) {
         return;
@@ -13608,6 +13307,9 @@ module.exports.Component = registerComponent('generic-tracked-controller-control
     this.el.sceneEl.removeEventListener('controllersupdated', this.onControllersUpdate, false);
   },
   onControllersUpdate: function () {
+    if (!this.wasControllerConnected) {
+      return;
+    }
     this.checkIfControllerPresent();
   },
   onButtonChanged: function (evt) {
@@ -13629,6 +13331,22 @@ module.exports.Component = registerComponent('generic-tracked-controller-control
       color: this.data.color
     });
     this.el.appendChild(modelEl);
+    this.el.emit('controllermodelready', {
+      name: 'generic-tracked-controller-controls',
+      model: this.modelEl,
+      rayOrigin: {
+        origin: {
+          x: 0,
+          y: 0,
+          z: -0.01
+        },
+        direction: {
+          x: 0,
+          y: 0,
+          z: -1
+        }
+      }
+    });
   }
 });
 
@@ -13785,6 +13503,7 @@ module.exports.Component = registerComponent('gltf-model', {
       self.loader.load(src, function gltfLoaded(gltfModel) {
         self.model = gltfModel.scene || gltfModel.scenes[0];
         self.model.animations = gltfModel.animations;
+        self.centerModel();
         el.setObject3D('mesh', self.model);
         el.emit('model-loaded', {
           format: 'gltf',
@@ -13800,11 +13519,34 @@ module.exports.Component = registerComponent('gltf-model', {
       });
     });
   },
+  centerModel: function () {
+    var model = this.model;
+    var box = new THREE.Box3().setFromObject(model);
+    var center = box.getCenter(new THREE.Vector3());
+    model.position.x += model.position.x - center.x;
+    model.position.y += model.position.y - center.y;
+    model.position.z += model.position.z - center.z;
+  },
   remove: function () {
     if (!this.model) {
       return;
     }
     this.el.removeObject3D('mesh');
+  }
+});
+
+/***/ }),
+
+/***/ "./src/components/grabbable.js":
+/*!*************************************!*\
+  !*** ./src/components/grabbable.js ***!
+  \*************************************/
+/***/ ((__unused_webpack_module, __unused_webpack_exports, __webpack_require__) => {
+
+var registerComponent = (__webpack_require__(/*! ../core/component */ "./src/core/component.js").registerComponent);
+registerComponent('grabbable', {
+  init: function () {
+    this.el.setAttribute('obb-collider', '');
   }
 });
 
@@ -14292,7 +14034,7 @@ function isViveController(trackedControls) {
   \**************************************************/
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
-/* global THREE */
+/* global THREE, XRHand */
 var registerComponent = (__webpack_require__(/*! ../core/component */ "./src/core/component.js").registerComponent);
 var bind = __webpack_require__(/*! ../utils/bind */ "./src/utils/bind.js");
 var trackedControlsUtils = __webpack_require__(/*! ../utils/tracked-controls */ "./src/utils/tracked-controls.js");
@@ -14301,11 +14043,11 @@ var AFRAME_CDN_ROOT = (__webpack_require__(/*! ../constants */ "./src/constants/
 var LEFT_HAND_MODEL_URL = AFRAME_CDN_ROOT + 'controllers/oculus-hands/v4/left.glb';
 var RIGHT_HAND_MODEL_URL = AFRAME_CDN_ROOT + 'controllers/oculus-hands/v4/right.glb';
 var JOINTS = ['wrist', 'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip', 'index-finger-metacarpal', 'index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-distal', 'index-finger-tip', 'middle-finger-metacarpal', 'middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate', 'middle-finger-phalanx-distal', 'middle-finger-tip', 'ring-finger-metacarpal', 'ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate', 'ring-finger-phalanx-distal', 'ring-finger-tip', 'pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal', 'pinky-finger-tip'];
+var WRIST_INDEX = 0;
 var THUMB_TIP_INDEX = 4;
 var INDEX_TIP_INDEX = 9;
 var PINCH_START_DISTANCE = 0.015;
-var PINCH_END_DISTANCE = 0.03;
-var PINCH_POSITION_INTERPOLATION = 0.5;
+var PINCH_END_PERCENTAGE = 0.1;
 
 /**
  * Controls for hand tracking
@@ -14349,17 +14091,19 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
   },
   init: function () {
     var sceneEl = this.el.sceneEl;
-    var webXROptionalAttributes = sceneEl.getAttribute('webxr').optionalFeatures;
-    webXROptionalAttributes.push('hand-tracking');
-    sceneEl.setAttribute('webxr', {
-      optionalFeatures: webXROptionalAttributes
-    });
+    var webxrData = sceneEl.getAttribute('webxr');
+    var optionalFeaturesArray = webxrData.optionalFeatures;
+    if (optionalFeaturesArray.indexOf('hand-tracking') === -1) {
+      optionalFeaturesArray.push('hand-tracking');
+      sceneEl.setAttribute('webxr', webxrData);
+    }
     this.onModelLoaded = this.onModelLoaded.bind(this);
     this.jointEls = [];
     this.controllerPresent = false;
     this.isPinched = false;
     this.pinchEventDetail = {
-      position: new THREE.Vector3()
+      position: new THREE.Vector3(),
+      wristRotation: new THREE.Quaternion()
     };
     this.indexTipPosition = new THREE.Vector3();
     this.wristAdjustment = new THREE.Vector3();
@@ -14370,6 +14114,19 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
     this.updateReferenceSpace = this.updateReferenceSpace.bind(this);
     this.el.sceneEl.addEventListener('enter-vr', this.updateReferenceSpace);
     this.el.sceneEl.addEventListener('exit-vr', this.updateReferenceSpace);
+  },
+  update: function () {
+    this.updateModelColor();
+  },
+  updateModelColor: function () {
+    var jointEls = this.jointEls;
+    var skinnedMesh = this.skinnedMesh;
+    if (skinnedMesh) {
+      this.skinnedMesh.material.color.set(this.data.modelColor);
+    }
+    for (var i = 0; i < jointEls.length; i++) {
+      jointEls[i].setAttribute('material', 'color', this.data.modelColor);
+    }
   },
   updateReferenceSpace: function () {
     var self = this;
@@ -14437,6 +14194,7 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
   updateHandMeshModel: function () {
     var jointPose = new THREE.Matrix4();
     return function () {
+      var i = 0;
       var jointPoses = this.jointPoses;
       var controller = this.el.components['tracked-controls'] && this.el.components['tracked-controls'].controller;
       if (!controller || !this.mesh) {
@@ -14456,6 +14214,7 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
           jointPose.fromArray(jointPoses, i * 16);
           bone.position.setFromMatrixPosition(jointPose);
           bone.quaternion.setFromRotationMatrix(jointPose);
+          bone.scale.set(scale, scale, scale);
           var wristPosition;
           var wristAdjustment = this.wristAdjustment;
           if (inputjoint.jointName === 'wrist') {
@@ -14504,25 +14263,28 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
     var jointPose = new THREE.Matrix4();
     return function () {
       var indexTipPosition = this.indexTipPosition;
+      var pinchEventDetail = this.pinchEventDetail;
       if (!this.hasPoses) {
         return;
       }
       thumbTipPosition.setFromMatrixPosition(jointPose.fromArray(this.jointPoses, THUMB_TIP_INDEX * 16));
       indexTipPosition.setFromMatrixPosition(jointPose.fromArray(this.jointPoses, INDEX_TIP_INDEX * 16));
+      pinchEventDetail.wristRotation.setFromRotationMatrix(jointPose.fromArray(this.jointPoses, WRIST_INDEX * 16));
       var distance = indexTipPosition.distanceTo(thumbTipPosition);
       if (distance < PINCH_START_DISTANCE && this.isPinched === false) {
         this.isPinched = true;
-        this.pinchEventDetail.position.copy(indexTipPosition).lerp(thumbTipPosition, PINCH_POSITION_INTERPOLATION);
-        this.el.emit('pinchstarted', this.pinchEventDetail);
+        this.pinchDistance = distance;
+        pinchEventDetail.position.copy(indexTipPosition).add(thumbTipPosition).multiplyScalar(0.5);
+        this.el.emit('pinchstarted', pinchEventDetail);
       }
-      if (distance > PINCH_END_DISTANCE && this.isPinched === true) {
+      if (distance > this.pinchDistance + this.pinchDistance * PINCH_END_PERCENTAGE && this.isPinched === true) {
         this.isPinched = false;
-        this.pinchEventDetail.position.copy(indexTipPosition).lerp(thumbTipPosition, PINCH_POSITION_INTERPOLATION);
-        this.el.emit('pinchended', this.pinchEventDetail);
+        pinchEventDetail.position.copy(indexTipPosition).add(thumbTipPosition).multiplyScalar(0.5);
+        this.el.emit('pinchended', pinchEventDetail);
       }
       if (this.isPinched) {
-        this.pinchEventDetail.position.copy(indexTipPosition).lerp(thumbTipPosition, PINCH_POSITION_INTERPOLATION);
-        this.el.emit('pinchmoved', this.pinchEventDetail);
+        pinchEventDetail.position.copy(indexTipPosition).add(thumbTipPosition).multiplyScalar(0.5);
+        this.el.emit('pinchmoved', pinchEventDetail);
       }
     };
   }(),
@@ -14534,10 +14296,17 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
     var el = this.el;
     var data = this.data;
     el.setAttribute('tracked-controls', {
+      id: '',
       hand: data.hand,
       iterateControllerProfiles: true,
       handTrackingEnabled: true
     });
+    if (this.mesh) {
+      if (this.mesh !== el.getObject3D('mesh')) {
+        el.setObject3D('mesh', this.mesh);
+      }
+      return;
+    }
     this.initDefaultModel();
   },
   addControllersUpdateListener: function () {
@@ -14547,24 +14316,23 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
     this.el.sceneEl.removeEventListener('controllersupdated', this.onControllersUpdate, false);
   },
   onControllersUpdate: function () {
+    var el = this.el;
     var controller;
     this.checkIfControllerPresent();
-    controller = this.el.components['tracked-controls'] && this.el.components['tracked-controls'].controller;
-    if (!this.el.getObject3D('mesh')) {
+    controller = el.components['tracked-controls'] && el.components['tracked-controls'].controller;
+    if (!this.mesh) {
       return;
     }
-    if (!controller || !controller.hand || !controller.hand[0]) {
-      this.el.getObject3D('mesh').visible = false;
+    if (controller && controller.hand && controller.hand instanceof XRHand) {
+      el.setObject3D('mesh', this.mesh);
     }
   },
   initDefaultModel: function () {
-    if (this.el.getObject3D('mesh')) {
-      return;
-    }
-    if (this.data.modelStyle === 'dots') {
+    var data = this.data;
+    if (data.modelStyle === 'dots') {
       this.initDotsModel();
     }
-    if (this.data.modelStyle === 'mesh') {
+    if (data.modelStyle === 'mesh') {
       this.initMeshHandModel();
     }
   },
@@ -14607,6 +14375,217 @@ module.exports.Component = registerComponent('hand-tracking-controls', {
       color: this.data.modelColor
     });
     this.el.setObject3D('mesh', mesh);
+  }
+});
+
+/***/ }),
+
+/***/ "./src/components/hand-tracking-grab-controls.js":
+/*!*******************************************************!*\
+  !*** ./src/components/hand-tracking-grab-controls.js ***!
+  \*******************************************************/
+/***/ ((__unused_webpack_module, __unused_webpack_exports, __webpack_require__) => {
+
+var registerComponent = (__webpack_require__(/*! ../core/component */ "./src/core/component.js").registerComponent);
+var THREE = __webpack_require__(/*! ../lib/three */ "./src/lib/three.js");
+registerComponent('hand-tracking-grab-controls', {
+  schema: {
+    hand: {
+      default: 'right',
+      oneOf: ['left', 'right']
+    },
+    color: {
+      type: 'color',
+      default: 'white'
+    },
+    hoverColor: {
+      type: 'color',
+      default: '#538df1'
+    },
+    hoverEnabled: {
+      default: false
+    }
+  },
+  init: function () {
+    var el = this.el;
+    var data = this.data;
+    var trackedObject3DVariable;
+    if (data.hand === 'right') {
+      trackedObject3DVariable = 'components.hand-tracking-controls.bones.3';
+    } else {
+      trackedObject3DVariable = 'components.hand-tracking-controls.bones.21';
+    }
+    el.setAttribute('hand-tracking-controls', {
+      hand: data.hand
+    });
+    el.setAttribute('obb-collider', {
+      trackedObject3D: trackedObject3DVariable,
+      size: 0.04
+    });
+    this.auxMatrix = new THREE.Matrix4();
+    this.auxQuaternion = new THREE.Quaternion();
+    this.auxQuaternion2 = new THREE.Quaternion();
+    this.auxVector = new THREE.Vector3();
+    this.auxVector2 = new THREE.Vector3();
+    this.grabbingObjectPosition = new THREE.Vector3();
+    this.grabbedObjectPosition = new THREE.Vector3();
+    this.grabbedObjectPositionDelta = new THREE.Vector3();
+    this.grabDeltaPosition = new THREE.Vector3();
+    this.grabInitialRotation = new THREE.Quaternion();
+    this.onCollisionStarted = this.onCollisionStarted.bind(this);
+    this.el.addEventListener('obbcollisionstarted', this.onCollisionStarted);
+    this.onCollisionEnded = this.onCollisionEnded.bind(this);
+    this.el.addEventListener('obbcollisionended', this.onCollisionEnded);
+    this.onPinchStarted = this.onPinchStarted.bind(this);
+    this.el.addEventListener('pinchstarted', this.onPinchStarted);
+    this.onPinchEnded = this.onPinchEnded.bind(this);
+    this.el.addEventListener('pinchended', this.onPinchEnded);
+    this.onPinchMoved = this.onPinchMoved.bind(this);
+    this.el.addEventListener('pinchmoved', this.onPinchMoved);
+  },
+  transferEntityOwnership: function () {
+    var grabbingElComponent;
+    var grabbingEls = this.el.sceneEl.querySelectorAll('[hand-tracking-grab-controls]');
+    for (var i = 0; i < grabbingEls.length; ++i) {
+      grabbingElComponent = grabbingEls[i].components['hand-tracking-grab-controls'];
+      if (grabbingElComponent === this) {
+        continue;
+      }
+      if (this.grabbedEl && this.grabbedEl === grabbingElComponent.grabbedEl) {
+        grabbingElComponent.releaseGrabbedEntity();
+      }
+    }
+    return false;
+  },
+  onCollisionStarted: function (evt) {
+    var withEl = evt.detail.withEl;
+    if (this.collidedEl) {
+      return;
+    }
+    if (!withEl.getAttribute('grabbable')) {
+      return;
+    }
+    this.collidedEl = withEl;
+    this.grabbingObject3D = evt.detail.trackedObject3D;
+    if (this.data.hoverEnabled) {
+      this.el.setAttribute('hand-tracking-controls', 'modelColor', this.data.hoverColor);
+    }
+  },
+  onCollisionEnded: function () {
+    this.collidedEl = undefined;
+    if (this.grabbedEl) {
+      return;
+    }
+    this.grabbingObject3D = undefined;
+    if (this.data.hoverEnabled) {
+      this.el.setAttribute('hand-tracking-controls', 'modelColor', this.data.color);
+    }
+  },
+  onPinchStarted: function (evt) {
+    if (!this.collidedEl) {
+      return;
+    }
+    this.pinchPosition = evt.detail.position;
+    this.wristRotation = evt.detail.wristRotation;
+    this.grabbedEl = this.collidedEl;
+    this.transferEntityOwnership();
+    this.grab();
+  },
+  onPinchEnded: function () {
+    this.releaseGrabbedEntity();
+  },
+  onPinchMoved: function (evt) {
+    this.wristRotation = evt.detail.wristRotation;
+  },
+  releaseGrabbedEntity: function () {
+    var grabbedEl = this.grabbedEl;
+    if (!grabbedEl) {
+      return;
+    }
+    grabbedEl.object3D.updateMatrixWorld = this.originalUpdateMatrixWorld;
+    grabbedEl.object3D.matrixAutoUpdate = true;
+    grabbedEl.object3D.matrixWorldAutoUpdate = true;
+    grabbedEl.object3D.matrixWorld.decompose(this.auxVector, this.auxQuaternion, this.auxVector2);
+    grabbedEl.object3D.position.copy(this.auxVector);
+    grabbedEl.object3D.quaternion.copy(this.auxQuaternion);
+    this.el.emit('grabended', {
+      grabbedEl: grabbedEl
+    });
+    this.grabbedEl = undefined;
+  },
+  grab: function () {
+    var grabbedEl = this.grabbedEl;
+    var grabedObjectWorldPosition;
+    grabedObjectWorldPosition = grabbedEl.object3D.getWorldPosition(this.grabbedObjectPosition);
+    this.grabDeltaPosition.copy(grabedObjectWorldPosition).sub(this.pinchPosition);
+    this.grabInitialRotation.copy(this.auxQuaternion.copy(this.wristRotation).invert());
+    this.originalUpdateMatrixWorld = grabbedEl.object3D.updateMatrixWorld;
+    grabbedEl.object3D.updateMatrixWorld = function () {/* no op */};
+    grabbedEl.object3D.updateMatrixWorldChildren = function (force) {
+      var children = this.children;
+      for (var i = 0, l = children.length; i < l; i++) {
+        var child = children[i];
+        if (child.matrixWorldAutoUpdate === true || force === true) {
+          child.updateMatrixWorld(true);
+        }
+      }
+    };
+    grabbedEl.object3D.matrixAutoUpdate = false;
+    grabbedEl.object3D.matrixWorldAutoUpdate = false;
+    this.el.emit('grabstarted', {
+      grabbedEl: grabbedEl
+    });
+  },
+  tock: function () {
+    var auxMatrix = this.auxMatrix;
+    var auxQuaternion = this.auxQuaternion;
+    var auxQuaternion2 = this.auxQuaternion2;
+    var grabbedObject3D;
+    var grabbedEl = this.grabbedEl;
+    if (!grabbedEl) {
+      return;
+    }
+
+    // We have to compose 4 transformations.
+    // Both grabbing and grabbed entities position and rotation.
+
+    // 1. Move grabbed entity to the pinch position (middle point between index and thumb)
+    // 2. Apply the rotation delta (substract initial rotation) of the grabbing entity position (wrist).
+    // 3. Translate grabbed entity to the original position: distance betweeen grabbed and grabbing entities at collision time.
+    // 4. Apply grabbed entity rotation.
+    // 5. Preserve original scale.
+
+    // Store grabbed entity local rotation.
+    grabbedObject3D = grabbedEl.object3D;
+    grabbedObject3D.getWorldQuaternion(auxQuaternion2);
+
+    // Reset grabbed entity matrix.
+    grabbedObject3D.matrixWorld.identity();
+
+    // 1.
+    auxMatrix.identity();
+    auxMatrix.makeTranslation(this.pinchPosition);
+    grabbedObject3D.matrixWorld.multiply(auxMatrix);
+
+    // 2.
+    auxMatrix.identity();
+    auxMatrix.makeRotationFromQuaternion(auxQuaternion.copy(this.wristRotation).multiply(this.grabInitialRotation));
+    grabbedObject3D.matrixWorld.multiply(auxMatrix);
+
+    // 3.
+    auxMatrix.identity();
+    auxMatrix.makeTranslation(this.grabDeltaPosition);
+    grabbedObject3D.matrixWorld.multiply(auxMatrix);
+
+    // 4.
+    auxMatrix.identity();
+    auxMatrix.makeRotationFromQuaternion(auxQuaternion2);
+    grabbedObject3D.matrixWorld.multiply(auxMatrix);
+
+    // 5.
+    auxMatrix.makeScale(grabbedEl.object3D.scale.x, grabbedEl.object3D.scale.y, grabbedEl.object3D.scale.z);
+    grabbedObject3D.matrixWorld.multiply(auxMatrix);
+    grabbedObject3D.updateMatrixWorldChildren();
   }
 });
 
@@ -14845,14 +14824,15 @@ module.exports.Component = registerComponent('hp-mixed-reality-controls', {
 /***/ ((__unused_webpack_module, __unused_webpack_exports, __webpack_require__) => {
 
 __webpack_require__(/*! ./animation */ "./src/components/animation.js");
+__webpack_require__(/*! ./anchored */ "./src/components/anchored.js");
 __webpack_require__(/*! ./camera */ "./src/components/camera.js");
 __webpack_require__(/*! ./cursor */ "./src/components/cursor.js");
-__webpack_require__(/*! ./daydream-controls */ "./src/components/daydream-controls.js");
-__webpack_require__(/*! ./gearvr-controls */ "./src/components/gearvr-controls.js");
 __webpack_require__(/*! ./geometry */ "./src/components/geometry.js");
 __webpack_require__(/*! ./generic-tracked-controller-controls */ "./src/components/generic-tracked-controller-controls.js");
 __webpack_require__(/*! ./gltf-model */ "./src/components/gltf-model.js");
+__webpack_require__(/*! ./grabbable */ "./src/components/grabbable.js");
 __webpack_require__(/*! ./hand-tracking-controls */ "./src/components/hand-tracking-controls.js");
+__webpack_require__(/*! ./hand-tracking-grab-controls */ "./src/components/hand-tracking-grab-controls.js");
 __webpack_require__(/*! ./hand-controls */ "./src/components/hand-controls.js");
 __webpack_require__(/*! ./hide-on-enter-ar */ "./src/components/hide-on-enter-ar.js");
 __webpack_require__(/*! ./hp-mixed-reality-controls */ "./src/components/hp-mixed-reality-controls.js");
@@ -14864,6 +14844,7 @@ __webpack_require__(/*! ./link */ "./src/components/link.js");
 __webpack_require__(/*! ./look-controls */ "./src/components/look-controls.js");
 __webpack_require__(/*! ./magicleap-controls */ "./src/components/magicleap-controls.js");
 __webpack_require__(/*! ./material */ "./src/components/material.js");
+__webpack_require__(/*! ./obb-collider */ "./src/components/obb-collider.js");
 __webpack_require__(/*! ./obj-model */ "./src/components/obj-model.js");
 __webpack_require__(/*! ./oculus-go-controls */ "./src/components/oculus-go-controls.js");
 __webpack_require__(/*! ./oculus-touch-controls */ "./src/components/oculus-touch-controls.js");
@@ -14896,7 +14877,7 @@ __webpack_require__(/*! ./scene/pool */ "./src/components/scene/pool.js");
 __webpack_require__(/*! ./scene/reflection */ "./src/components/scene/reflection.js");
 __webpack_require__(/*! ./scene/screenshot */ "./src/components/scene/screenshot.js");
 __webpack_require__(/*! ./scene/stats */ "./src/components/scene/stats.js");
-__webpack_require__(/*! ./scene/vr-mode-ui */ "./src/components/scene/vr-mode-ui.js");
+__webpack_require__(/*! ./scene/xr-mode-ui */ "./src/components/scene/xr-mode-ui.js");
 
 /***/ }),
 
@@ -14932,8 +14913,6 @@ registerComponent('laser-controls', {
     };
 
     // Set all controller models.
-    el.setAttribute('daydream-controls', controlsConfiguration);
-    el.setAttribute('gearvr-controls', controlsConfiguration);
     el.setAttribute('hp-mixed-reality-controls', controlsConfiguration);
     el.setAttribute('magicleap-controls', controlsConfiguration);
     el.setAttribute('oculus-go-controls', controlsConfiguration);
@@ -14985,30 +14964,15 @@ registerComponent('laser-controls', {
         fuse: false
       }, controllerConfig.cursor));
     }
-    function hideRay() {
+    function hideRay(evt) {
+      var controllerConfig = config[evt.detail.name];
+      if (!controllerConfig) {
+        return;
+      }
       el.setAttribute('raycaster', 'showLine', false);
     }
   },
   config: {
-    'daydream-controls': {
-      cursor: {
-        downEvents: ['trackpaddown', 'triggerdown'],
-        upEvents: ['trackpadup', 'triggerup']
-      }
-    },
-    'gearvr-controls': {
-      cursor: {
-        downEvents: ['triggerdown'],
-        upEvents: ['triggerup']
-      },
-      raycaster: {
-        origin: {
-          x: 0,
-          y: 0.0010,
-          z: 0
-        }
-      }
-    },
     'generic-tracked-controller-controls': {
       cursor: {
         downEvents: ['triggerdown'],
@@ -15128,9 +15092,12 @@ module.exports.Component = registerComponent('layer', {
     this.bindMethods();
     this.needsRedraw = false;
     this.frameBuffer = gl.createFramebuffer();
-    var requiredFeatures = this.el.sceneEl.getAttribute('webxr').requiredFeatures;
-    requiredFeatures.push('layers');
-    this.el.sceneEl.getAttribute('webxr', 'requiredFeatures', requiredFeatures);
+    var webxrData = this.el.sceneEl.getAttribute('webxr');
+    var requiredFeaturesArray = webxrData.optionalFeatures;
+    if (requiredFeaturesArray.indexOf('layers') === -1) {
+      requiredFeaturesArray.push('laters');
+      this.el.sceneEl.setAttribute('webxr', webxrData);
+    }
     this.el.sceneEl.addEventListener('enter-vr', this.onEnterVR);
     this.el.sceneEl.addEventListener('exit-vr', this.onExitVR);
   },
@@ -17442,6 +17409,173 @@ function disposeMaterial(material, system) {
 
 /***/ }),
 
+/***/ "./src/components/obb-collider.js":
+/*!****************************************!*\
+  !*** ./src/components/obb-collider.js ***!
+  \****************************************/
+/***/ ((__unused_webpack_module, __unused_webpack_exports, __webpack_require__) => {
+
+var registerComponent = (__webpack_require__(/*! ../core/component */ "./src/core/component.js").registerComponent);
+var THREE = __webpack_require__(/*! ../lib/three */ "./src/lib/three.js");
+registerComponent('obb-collider', {
+  schema: {
+    size: {
+      default: 0
+    },
+    trackedObject3D: {
+      default: ''
+    }
+  },
+  init: function () {
+    this.auxEuler = new THREE.Euler();
+    this.boundingBox = new THREE.Box3();
+    this.boundingBoxSize = new THREE.Vector3();
+    this.updateCollider = this.updateCollider.bind(this);
+    this.updateBoundingBox = this.updateBoundingBox.bind(this);
+    this.el.addEventListener('model-loaded', this.updateCollider);
+    this.updateCollider();
+    this.system.addCollider(this.el);
+  },
+  remove: function () {
+    this.system.removeCollider(this.el);
+  },
+  update: function () {
+    if (this.data.trackedObject3D) {
+      this.trackedObject3DPath = this.data.trackedObject3D.split('.');
+    }
+  },
+  updateCollider: function () {
+    var el = this.el;
+    var boundingBoxSize = this.boundingBoxSize;
+    var aabb = this.aabb = this.aabb || new THREE.OBB();
+    this.obb = this.obb || new THREE.OBB();
+
+    // Defer if entity has not yet loaded.
+    if (!el.hasLoaded) {
+      el.addEventListener('loaded', this.updateCollider);
+      return;
+    }
+    this.updateBoundingBox();
+    aabb.halfSize.copy(boundingBoxSize).multiplyScalar(0.5);
+    if (this.el.sceneEl.systems['obb-collider'].data.showColliders) {
+      this.showCollider();
+    }
+  },
+  showCollider: function () {
+    this.updateColliderMesh();
+    this.renderColliderMesh.visible = true;
+  },
+  updateColliderMesh: function () {
+    var renderColliderMesh = this.renderColliderMesh;
+    var boundingBoxSize = this.boundingBoxSize;
+    if (!renderColliderMesh) {
+      this.initColliderMesh();
+      return;
+    }
+
+    // Destroy current geometry.
+    renderColliderMesh.geometry.dispose();
+    renderColliderMesh.geometry = new THREE.BoxGeometry(boundingBoxSize.x, boundingBoxSize.y, boundingBoxSize.z);
+  },
+  hideCollider: function () {
+    if (!this.renderColliderMesh) {
+      return;
+    }
+    this.renderColliderMesh.visible = false;
+  },
+  initColliderMesh: function () {
+    var boundingBoxSize;
+    var renderColliderGeometry;
+    var renderColliderMesh;
+    boundingBoxSize = this.boundingBoxSize;
+    renderColliderGeometry = this.renderColliderGeometry = new THREE.BoxGeometry(boundingBoxSize.x, boundingBoxSize.y, boundingBoxSize.z);
+    renderColliderMesh = this.renderColliderMesh = new THREE.Mesh(renderColliderGeometry, new THREE.MeshLambertMaterial({
+      color: 0x00ff00,
+      side: THREE.DoubleSide
+    }));
+    renderColliderMesh.matrixAutoUpdate = false;
+    renderColliderMesh.matrixWorldAutoUpdate = false;
+    // THREE scene forces matrix world update even if matrixWorldAutoUpdate set to false.
+    renderColliderMesh.updateMatrixWorld = function () {/* no op */};
+    this.el.sceneEl.object3D.add(renderColliderMesh);
+  },
+  updateBoundingBox: function () {
+    var auxEuler = this.auxEuler;
+    var boundingBox = this.boundingBox;
+    var size = this.data.size;
+    var trackedObject3D = this.trackedObject3D || this.el.object3D;
+    var boundingBoxSize = this.boundingBoxSize;
+
+    // user defined size takes precedence.
+    if (size) {
+      this.boundingBoxSize.x = size;
+      this.boundingBoxSize.y = size;
+      this.boundingBoxSize.z = size;
+      return;
+    }
+
+    // Bounding box is created axis-aligned AABB.
+    // If there's any local rotation the box will be bigger than expected.
+    // It undoes the local entity rotation and then restores so box has the expected size.
+    auxEuler.copy(trackedObject3D.rotation);
+    trackedObject3D.rotation.set(0, 0, 0);
+    trackedObject3D.updateMatrixWorld(true);
+    boundingBox.setFromObject(trackedObject3D, true);
+    boundingBox.getSize(boundingBoxSize);
+
+    // Restore rotation.
+    this.el.object3D.rotation.copy(auxEuler);
+  },
+  checkTrackedObject: function () {
+    var trackedObject3DPath = this.trackedObject3DPath;
+    var trackedObject3D;
+    if (trackedObject3DPath && trackedObject3DPath.length && !this.trackedObject3D) {
+      trackedObject3D = this.el;
+      for (var i = 0; i < trackedObject3DPath.length; i++) {
+        trackedObject3D = trackedObject3D[trackedObject3DPath[i]];
+        if (!trackedObject3D) {
+          break;
+        }
+      }
+      if (trackedObject3D) {
+        this.trackedObject3D = trackedObject3D;
+        this.updateCollider();
+      }
+    }
+    return this.trackedObject3D;
+  },
+  tick: function () {
+    var auxPosition = new THREE.Vector3();
+    var auxScale = new THREE.Vector3();
+    var auxQuaternion = new THREE.Quaternion();
+    var auxMatrix = new THREE.Matrix4();
+    return function () {
+      var obb = this.obb;
+      var renderColliderMesh = this.renderColliderMesh;
+      var trackedObject3D = this.checkTrackedObject() || this.el.object3D;
+      if (!trackedObject3D) {
+        return;
+      }
+      trackedObject3D.updateMatrix();
+      trackedObject3D.updateMatrixWorld();
+      trackedObject3D.matrixWorld.decompose(auxPosition, auxQuaternion, auxScale);
+      // reset scale, keep position and rotation
+      auxScale.set(1, 1, 1);
+      auxMatrix.compose(auxPosition, auxQuaternion, auxScale);
+      // Update OBB visual representation.
+      if (renderColliderMesh) {
+        renderColliderMesh.matrixWorld.copy(auxMatrix);
+      }
+
+      // Reset OBB with AABB and apply entity matrix. applyMatrix4 changes OBB internal state.
+      obb.copy(this.aabb);
+      obb.applyMatrix4(auxMatrix);
+    };
+  }()
+});
+
+/***/ }),
+
 /***/ "./src/components/obj-model.js":
 /*!*************************************!*\
   !*** ./src/components/obj-model.js ***!
@@ -17993,6 +18127,42 @@ var CONTROLLER_PROPERTIES = {
       modelPivotOffset: new THREE.Vector3(0, 0, 0),
       modelPivotRotation: new THREE.Euler(0, 0, 0)
     }
+  },
+  'meta-quest-touch-plus': {
+    left: {
+      modelUrl: META_CONTROLLER_MODEL_BASE_URL + 'quest-touch-plus-left.glb',
+      rayOrigin: {
+        origin: {
+          x: 0.0065,
+          y: -0.0186,
+          z: -0.05
+        },
+        direction: {
+          x: 0.12394785839500175,
+          y: -0.5944043672340157,
+          z: -0.7945567170519814
+        }
+      },
+      modelPivotOffset: new THREE.Vector3(0, 0, 0),
+      modelPivotRotation: new THREE.Euler(0, 0, 0)
+    },
+    right: {
+      modelUrl: META_CONTROLLER_MODEL_BASE_URL + 'quest-touch-plus-right.glb',
+      rayOrigin: {
+        origin: {
+          x: -0.0065,
+          y: -0.0186,
+          z: -0.05
+        },
+        direction: {
+          x: -0.12394785839500175,
+          y: -0.5944043672340157,
+          z: -0.7945567170519814
+        }
+      },
+      modelPivotOffset: new THREE.Vector3(0, 0, 0),
+      modelPivotRotation: new THREE.Euler(0, 0, 0)
+    }
   }
 };
 
@@ -18167,6 +18337,12 @@ module.exports.Component = registerComponent('oculus-touch-controls', {
     if (!data.model) {
       return;
     }
+    // If model has been already loaded
+    if (this.controllerObject3D) {
+      this.el.setObject3D('mesh', this.controllerObject3D);
+      return;
+    }
+
     // Set the controller display model based on the data passed in.
     this.displayModel = CONTROLLER_PROPERTIES[data.controllerType] || CONTROLLER_PROPERTIES[CONTROLLER_DEFAULT];
     // If the developer is asking for auto-detection, use the retrieved displayName to identify the specific unit.
@@ -18193,7 +18369,7 @@ module.exports.Component = registerComponent('oculus-touch-controls', {
       }
     }
     var modelUrl = this.displayModel[data.hand].modelUrl;
-    this.isOculusTouchV3 = this.displayModel === CONTROLLER_PROPERTIES['oculus-touch-v3'];
+    this.isTouchV3orPROorPlus = this.displayModel === CONTROLLER_PROPERTIES['oculus-touch-v3'] || this.displayModel === CONTROLLER_PROPERTIES['meta-quest-touch-pro'] || this.displayModel === CONTROLLER_PROPERTIES['meta-quest-touch-plus'];
     this.el.setAttribute('gltf-model', modelUrl);
   },
   injectTrackedControls: function (controller) {
@@ -18227,8 +18403,8 @@ module.exports.Component = registerComponent('oculus-touch-controls', {
       return;
     }
     // move the button meshes
-    if (this.isOculusTouchV3) {
-      this.onButtonChangedV3(evt);
+    if (this.isTouchV3orPROorPlus) {
+      this.onButtonChangedV3orPROorPlus(evt);
     } else {
       var buttonMeshes = this.buttonMeshes;
       var analogValue;
@@ -18248,8 +18424,7 @@ module.exports.Component = registerComponent('oculus-touch-controls', {
     // Pass along changed event with button state, using the buttom mapping for convenience.
     this.el.emit(button + 'changed', evt.detail.state);
   },
-  clickButtons: ['xbutton', 'ybutton', 'abutton', 'bbutton', 'thumbstick'],
-  onButtonChangedV3: function (evt) {
+  onButtonChangedV3orPROorPlus: function (evt) {
     var button = this.mapping[this.data.hand].buttons[evt.detail.id];
     var buttonObjects = this.buttonObjects;
     var analogValue;
@@ -18257,25 +18432,15 @@ module.exports.Component = registerComponent('oculus-touch-controls', {
       return;
     }
     analogValue = evt.detail.state.value;
-    analogValue *= this.data.hand === 'left' ? -1 : 1;
-    if (button === 'trigger') {
-      this.triggerEuler.copy(this.buttonRanges.trigger.min.rotation);
-      this.triggerEuler.x += analogValue * this.buttonRanges.trigger.diff.x;
-      this.triggerEuler.y += analogValue * this.buttonRanges.trigger.diff.y;
-      this.triggerEuler.z += analogValue * this.buttonRanges.trigger.diff.z;
-      buttonObjects.trigger.setRotationFromEuler(this.triggerEuler);
-    } else if (button === 'grip') {
-      buttonObjects.grip.position.x = buttonObjects.grip.minX + analogValue * 0.004;
-    } else if (this.clickButtons.includes(button)) {
-      buttonObjects[button].position.y = analogValue === 0 ? this.buttonRanges[button].unpressedY : this.buttonRanges[button].pressedY;
-    }
+    buttonObjects[button].quaternion.slerpQuaternions(this.buttonRanges[button].min.quaternion, this.buttonRanges[button].max.quaternion, analogValue);
+    buttonObjects[button].position.lerpVectors(this.buttonRanges[button].min.position, this.buttonRanges[button].max.position, analogValue);
   },
   onModelLoaded: function (evt) {
     if (!this.data.model) {
       return;
     }
-    if (this.isOculusTouchV3) {
-      this.onOculusTouchV3ModelLoaded(evt);
+    if (this.isTouchV3orPROorPlus) {
+      this.onTouchV3orPROorPlusModelLoaded(evt);
     } else {
       // All oculus headset controller models prior to the Quest 2 (i.e., Oculus Touch V3)
       // used a consistent format that is handled here
@@ -18308,7 +18473,7 @@ module.exports.Component = registerComponent('oculus-touch-controls', {
     model.position.copy(this.displayModel[this.data.hand].modelPivotOffset);
     model.rotation.copy(this.displayModel[this.data.hand].modelPivotRotation);
   },
-  onOculusTouchV3ModelLoaded: function (evt) {
+  onTouchV3orPROorPlusModelLoaded: function (evt) {
     var controllerObject3D = this.controllerObject3D = evt.detail.model;
     var buttonObjects = this.buttonObjects = {};
     var buttonMeshes = this.buttonMeshes = {};
@@ -18324,11 +18489,18 @@ module.exports.Component = registerComponent('oculus-touch-controls', {
     buttonObjects.thumbstick = controllerObject3D.getObjectByName('xr_standard_thumbstick_pressed_value');
     buttonRanges.thumbstick = {
       min: controllerObject3D.getObjectByName('xr_standard_thumbstick_pressed_min'),
-      max: controllerObject3D.getObjectByName('xr_standard_thumbstick_pressed_max'),
-      originalRotation: this.buttonObjects.thumbstick.rotation.clone()
+      max: controllerObject3D.getObjectByName('xr_standard_thumbstick_pressed_max')
     };
-    buttonRanges.thumbstick.pressedY = buttonObjects.thumbstick.position.y;
-    buttonRanges.thumbstick.unpressedY = buttonRanges.thumbstick.pressedY + Math.abs(buttonRanges.thumbstick.max.position.y) - Math.abs(buttonRanges.thumbstick.min.position.y);
+    buttonObjects.thumbstickXAxis = controllerObject3D.getObjectByName('xr_standard_thumbstick_xaxis_pressed_value');
+    buttonRanges.thumbstickXAxis = {
+      min: controllerObject3D.getObjectByName('xr_standard_thumbstick_xaxis_pressed_min'),
+      max: controllerObject3D.getObjectByName('xr_standard_thumbstick_xaxis_pressed_max')
+    };
+    buttonObjects.thumbstickYAxis = controllerObject3D.getObjectByName('xr_standard_thumbstick_yaxis_pressed_value');
+    buttonRanges.thumbstickYAxis = {
+      min: controllerObject3D.getObjectByName('xr_standard_thumbstick_yaxis_pressed_min'),
+      max: controllerObject3D.getObjectByName('xr_standard_thumbstick_yaxis_pressed_max')
+    };
     buttonMeshes.trigger = controllerObject3D.getObjectByName('trigger');
     buttonObjects.trigger = controllerObject3D.getObjectByName('xr_standard_trigger_pressed_value');
     buttonRanges.trigger = {
@@ -18356,16 +18528,16 @@ module.exports.Component = registerComponent('oculus-touch-controls', {
       min: controllerObject3D.getObjectByName(button2 + '_button_pressed_min'),
       max: controllerObject3D.getObjectByName(button2 + '_button_pressed_max')
     };
-    buttonRanges[button1id].unpressedY = buttonObjects[button1id].position.y;
-    buttonRanges[button1id].pressedY = buttonRanges[button1id].unpressedY + Math.abs(buttonRanges[button1id].max.position.y) - Math.abs(buttonRanges[button1id].min.position.y);
-    buttonRanges[button2id].unpressedY = buttonObjects[button2id].position.y;
-    buttonRanges[button2id].pressedY = buttonRanges[button2id].unpressedY - Math.abs(buttonRanges[button2id].max.position.y) + Math.abs(buttonRanges[button2id].min.position.y);
   },
   onAxisMoved: function (evt) {
     emitIfAxesChanged(this, this.mapping[this.data.hand].axes, evt);
   },
   onThumbstickMoved: function (evt) {
-    if (!this.isOculusTouchV3 || !this.buttonMeshes || !this.buttonMeshes.thumbstick) {
+    if (!this.buttonMeshes || !this.buttonMeshes.thumbstick) {
+      return;
+    }
+    if (this.isTouchV3orPROorPlus) {
+      this.updateThumbstickTouchV3orPROorPlus(evt);
       return;
     }
     for (var axis in evt.detail) {
@@ -18375,6 +18547,12 @@ module.exports.Component = registerComponent('oculus-touch-controls', {
   axisMap: {
     y: 'x',
     x: 'z'
+  },
+  updateThumbstickTouchV3orPROorPlus: function (evt) {
+    var normalizedXAxis = (evt.detail.x + 1.0) / 2.0;
+    this.buttonObjects.thumbstickXAxis.quaternion.slerpQuaternions(this.buttonRanges.thumbstickXAxis.min.quaternion, this.buttonRanges.thumbstickXAxis.max.quaternion, normalizedXAxis);
+    var normalizedYAxis = (evt.detail.y + 1.0) / 2.0;
+    this.buttonObjects.thumbstickYAxis.quaternion.slerpQuaternions(this.buttonRanges.thumbstickYAxis.min.quaternion, this.buttonRanges.thumbstickYAxis.max.quaternion, normalizedYAxis);
   },
   updateModel: function (buttonName, evtName) {
     if (!this.data.model) {
@@ -19886,7 +20064,7 @@ var registerComponent = (__webpack_require__(/*! ../../core/component */ "./src/
  * Component to embed an a-frame scene within the layout of a 2D page.
  */
 module.exports.Component = registerComponent('embedded', {
-  dependencies: ['vr-mode-ui'],
+  dependencies: ['xr-mode-ui'],
   schema: {
     default: true
   },
@@ -20303,7 +20481,7 @@ module.exports.Component = registerComponent('pool', {
     el.pause();
     return el;
   },
-  updateRaycasters() {
+  updateRaycasters: function () {
     var raycasterEls = document.querySelectorAll('[raycaster]');
     raycasterEls.forEach(function (el) {
       el.components['raycaster'].setDirty();
@@ -20798,9 +20976,9 @@ function createStats(scene) {
 
 /***/ }),
 
-/***/ "./src/components/scene/vr-mode-ui.js":
+/***/ "./src/components/scene/xr-mode-ui.js":
 /*!********************************************!*\
-  !*** ./src/components/scene/vr-mode-ui.js ***!
+  !*** ./src/components/scene/xr-mode-ui.js ***!
   \********************************************/
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
@@ -20816,9 +20994,9 @@ var HIDDEN_CLASS = 'a-hidden';
 var ORIENTATION_MODAL_CLASS = 'a-orientation-modal';
 
 /**
- * UI for entering VR mode.
+ * UI for Aentering VR mode.
  */
-module.exports.Component = registerComponent('vr-mode-ui', {
+module.exports.Component = registerComponent('xr-mode-ui', {
   dependencies: ['canvas'],
   schema: {
     enabled: {
@@ -20837,7 +21015,11 @@ module.exports.Component = registerComponent('vr-mode-ui', {
       default: ''
     },
     enterAREnabled: {
-      default: false
+      default: true
+    },
+    XRMode: {
+      default: 'vr',
+      oneOf: ['vr', 'ar', 'xr']
     }
   },
   init: function () {
@@ -20902,7 +21084,7 @@ module.exports.Component = registerComponent('vr-mode-ui', {
     }
 
     // Add UI if enabled and not already present.
-    if (!this.enterVREl && data.enterVREnabled) {
+    if (!this.enterVREl && data.enterVREnabled && (data.XRMode === 'xr' || data.XRMode === 'vr')) {
       if (data.enterVRButton) {
         // Custom button.
         this.enterVREl = document.querySelector(data.enterVRButton);
@@ -20912,13 +21094,13 @@ module.exports.Component = registerComponent('vr-mode-ui', {
         sceneEl.appendChild(this.enterVREl);
       }
     }
-    if (!this.enterAREl && data.enterAREnabled) {
+    if (!this.enterAREl && data.enterAREnabled && (data.XRMode === 'xr' || data.XRMode === 'ar')) {
       if (data.enterARButton) {
         // Custom button.
         this.enterAREl = document.querySelector(data.enterARButton);
         this.enterAREl.addEventListener('click', this.onEnterARButtonClick);
       } else {
-        this.enterAREl = createEnterARButton(this.onEnterARButtonClick);
+        this.enterAREl = createEnterARButton(this.onEnterARButtonClick, data.XRMode === 'xr');
         sceneEl.appendChild(this.enterAREl);
       }
     }
@@ -21022,13 +21204,16 @@ function createEnterVRButton(onClick) {
  * @param {function} onClick - click event handler
  * @returns {Element} Wrapper <div>.
  */
-function createEnterARButton(onClick) {
+function createEnterARButton(onClick, xrMode) {
   var arButton;
   var wrapper;
 
   // Create elements.
   wrapper = document.createElement('div');
   wrapper.classList.add(ENTER_AR_CLASS);
+  if (xrMode) {
+    wrapper.classList.add('xr');
+  }
   wrapper.setAttribute(constants.AFRAME_INJECTED, '');
   arButton = document.createElement('button');
   arButton.className = ENTER_AR_BTN_CLASS;
@@ -21173,6 +21358,12 @@ module.exports.Component = registerComponent('sound', {
     loop: {
       default: false
     },
+    loopStart: {
+      default: 0
+    },
+    loopEnd: {
+      default: 0
+    },
     maxDistance: {
       default: 10000
     },
@@ -21234,6 +21425,14 @@ module.exports.Component = registerComponent('sound', {
         sound.setRolloffFactor(data.rolloffFactor);
       }
       sound.setLoop(data.loop);
+      sound.setLoopStart(data.loopStart);
+
+      // With a loop start specified without a specified loop end, the end of the loop should be the end of the file
+      if (data.loopStart !== 0 && data.loopEnd === 0) {
+        sound.setLoopEnd(sound.buffer.duration);
+      } else {
+        sound.setLoopEnd(data.loopEnd);
+      }
       sound.setVolume(data.volume);
       sound.isPaused = false;
     }
@@ -21255,7 +21454,7 @@ module.exports.Component = registerComponent('sound', {
         // Remove this key from cache, otherwise we can't play it again
         THREE.Cache.remove(data.src);
         if (self.data.autoplay || self.mustPlay) {
-          self.playSound();
+          self.playSound(this.processSound);
         }
         self.el.emit('sound-loaded', self.evtDetail, false);
       });
@@ -21370,6 +21569,7 @@ module.exports.Component = registerComponent('sound', {
     if (!this.loaded) {
       warn('Sound not loaded yet. It will be played once it finished loading');
       this.mustPlay = true;
+      this.processSound = processSound;
       return;
     }
     found = false;
@@ -21391,6 +21591,7 @@ module.exports.Component = registerComponent('sound', {
       return;
     }
     this.mustPlay = false;
+    this.processSound = undefined;
   },
   /**
    * Stop all the sounds in the pool.
@@ -21569,6 +21770,7 @@ module.exports.Component = registerComponent('text', {
     this.shaderData = {};
     this.geometry = createTextGeometry();
     this.createOrUpdateMaterial();
+    this.explicitGeoDimensionsChecked = false;
   },
   update: function (oldData) {
     var data = this.data;
@@ -21782,10 +21984,15 @@ module.exports.Component = registerComponent('text', {
     // Update geometry dimensions to match text layout if width and height are set to 0.
     // For example, scales a plane to fit text.
     if (geometryComponent && geometryComponent.primitive === 'plane') {
-      if (!geometryComponent.width) {
+      if (!this.explicitGeoDimensionsChecked) {
+        this.explicitGeoDimensionsChecked = true;
+        this.hasExplicitGeoWidth = !!geometryComponent.width;
+        this.hasExplicitGeoHeight = !!geometryComponent.height;
+      }
+      if (!this.hasExplicitGeoWidth) {
         el.setAttribute('geometry', 'width', width);
       }
-      if (!geometryComponent.height) {
+      if (!this.hasExplicitGeoHeight) {
         el.setAttribute('geometry', 'height', height);
       }
     }
@@ -24150,6 +24357,9 @@ module.exports.Component = registerComponent('windows-motion-controls', {
   },
   setModelVisibility: function (visible) {
     var model = this.el.getObject3D('mesh');
+    if (!this.controllerPresent) {
+      return;
+    }
     visible = visible !== undefined ? visible : this.modelVisible;
     this.modelVisible = visible;
     if (!model) {
@@ -27161,7 +27371,7 @@ class AScene extends AEntity {
     this.setAttribute('inspector', '');
     this.setAttribute('keyboard-shortcuts', '');
     this.setAttribute('screenshot', '');
-    this.setAttribute('vr-mode-ui', '');
+    this.setAttribute('xr-mode-ui', '');
     this.setAttribute('device-orientation-permission-ui', '');
     super.connectedCallback();
 
@@ -27693,6 +27903,9 @@ class AScene extends AEntity {
       if (rendererAttr.alpha) {
         rendererConfig.alpha = rendererAttr.alpha === 'true';
       }
+      if (rendererAttr.multiviewStereo) {
+        rendererConfig.multiviewStereo = rendererAttr.multiviewStereo === 'true';
+      }
       this.maxCanvasSize = {
         width: rendererAttr.maxCanvasWidth ? parseInt(rendererAttr.maxCanvasWidth) : this.maxCanvasSize.width,
         height: rendererAttr.maxCanvasHeight ? parseInt(rendererAttr.maxCanvasHeight) : this.maxCanvasSize.height
@@ -27700,7 +27913,6 @@ class AScene extends AEntity {
     }
     renderer = this.renderer = new THREE.WebGLRenderer(rendererConfig);
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.sortObjects = false;
     if (this.camera) {
       renderer.xr.setPoseTarget(this.camera.el.object3D);
     }
@@ -30265,7 +30477,7 @@ __webpack_require__(/*! ./core/a-mixin */ "./src/core/a-mixin.js");
 // Extras.
 __webpack_require__(/*! ./extras/components/ */ "./src/extras/components/index.js");
 __webpack_require__(/*! ./extras/primitives/ */ "./src/extras/primitives/index.js");
-console.log('A-Frame Version: 1.4.2 (Date 2023-08-11, Commit #ac5d2f76)');
+console.log('A-Frame Version: 1.4.2 (Date 2023-11-10, Commit #6bbe905b)');
 console.log('THREE Version (https://github.com/supermedium/three.js):', pkg.dependencies['super-three']);
 console.log('WebVR Polyfill Version:', pkg.dependencies['webvr-polyfill']);
 module.exports = window.AFRAME = {
@@ -30403,10 +30615,12 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var super_three_examples_jsm_loaders_DRACOLoader__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! super-three/examples/jsm/loaders/DRACOLoader */ "./node_modules/super-three/examples/jsm/loaders/DRACOLoader.js");
 /* harmony import */ var super_three_examples_jsm_loaders_GLTFLoader__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! super-three/examples/jsm/loaders/GLTFLoader */ "./node_modules/super-three/examples/jsm/loaders/GLTFLoader.js");
 /* harmony import */ var super_three_examples_jsm_loaders_KTX2Loader__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! super-three/examples/jsm/loaders/KTX2Loader */ "./node_modules/super-three/examples/jsm/loaders/KTX2Loader.js");
+/* harmony import */ var super_three_addons_math_OBB_js__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! super-three/addons/math/OBB.js */ "./node_modules/super-three/examples/jsm/math/OBB.js");
 /* harmony import */ var super_three_examples_jsm_loaders_OBJLoader__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! super-three/examples/jsm/loaders/OBJLoader */ "./node_modules/super-three/examples/jsm/loaders/OBJLoader.js");
 /* harmony import */ var super_three_examples_jsm_loaders_MTLLoader__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! super-three/examples/jsm/loaders/MTLLoader */ "./node_modules/super-three/examples/jsm/loaders/MTLLoader.js");
-/* harmony import */ var super_three_examples_jsm_utils_BufferGeometryUtils__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! super-three/examples/jsm/utils/BufferGeometryUtils */ "./node_modules/super-three/examples/jsm/utils/BufferGeometryUtils.js");
-/* harmony import */ var super_three_examples_jsm_lights_LightProbeGenerator__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! super-three/examples/jsm/lights/LightProbeGenerator */ "./node_modules/super-three/examples/jsm/lights/LightProbeGenerator.js");
+/* harmony import */ var super_three_examples_jsm_utils_BufferGeometryUtils__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! super-three/examples/jsm/utils/BufferGeometryUtils */ "./node_modules/super-three/examples/jsm/utils/BufferGeometryUtils.js");
+/* harmony import */ var super_three_examples_jsm_lights_LightProbeGenerator__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(/*! super-three/examples/jsm/lights/LightProbeGenerator */ "./node_modules/super-three/examples/jsm/lights/LightProbeGenerator.js");
+
 
 
 
@@ -30425,8 +30639,9 @@ THREE.GLTFLoader = super_three_examples_jsm_loaders_GLTFLoader__WEBPACK_IMPORTED
 THREE.KTX2Loader = super_three_examples_jsm_loaders_KTX2Loader__WEBPACK_IMPORTED_MODULE_3__.KTX2Loader;
 THREE.OBJLoader = super_three_examples_jsm_loaders_OBJLoader__WEBPACK_IMPORTED_MODULE_4__.OBJLoader;
 THREE.MTLLoader = super_three_examples_jsm_loaders_MTLLoader__WEBPACK_IMPORTED_MODULE_5__.MTLLoader;
-THREE.BufferGeometryUtils = super_three_examples_jsm_utils_BufferGeometryUtils__WEBPACK_IMPORTED_MODULE_6__;
-THREE.LightProbeGenerator = super_three_examples_jsm_lights_LightProbeGenerator__WEBPACK_IMPORTED_MODULE_7__.LightProbeGenerator;
+THREE.OBB = super_three_addons_math_OBB_js__WEBPACK_IMPORTED_MODULE_6__.OBB;
+THREE.BufferGeometryUtils = super_three_examples_jsm_utils_BufferGeometryUtils__WEBPACK_IMPORTED_MODULE_7__;
+THREE.LightProbeGenerator = super_three_examples_jsm_lights_LightProbeGenerator__WEBPACK_IMPORTED_MODULE_8__.LightProbeGenerator;
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (THREE);
 
 /***/ }),
@@ -31841,6 +32056,7 @@ __webpack_require__(/*! ./geometry */ "./src/systems/geometry.js");
 __webpack_require__(/*! ./gltf-model */ "./src/systems/gltf-model.js");
 __webpack_require__(/*! ./light */ "./src/systems/light.js");
 __webpack_require__(/*! ./material */ "./src/systems/material.js");
+__webpack_require__(/*! ./obb-collider */ "./src/systems/obb-collider.js");
 __webpack_require__(/*! ./renderer */ "./src/systems/renderer.js");
 __webpack_require__(/*! ./shadow */ "./src/systems/shadow.js");
 __webpack_require__(/*! ./tracked-controls-webvr */ "./src/systems/tracked-controls-webvr.js");
@@ -32305,6 +32521,153 @@ function fixVideoAttributes(videoEl) {
 
 /***/ }),
 
+/***/ "./src/systems/obb-collider.js":
+/*!*************************************!*\
+  !*** ./src/systems/obb-collider.js ***!
+  \*************************************/
+/***/ ((__unused_webpack_module, __unused_webpack_exports, __webpack_require__) => {
+
+var registerSystem = (__webpack_require__(/*! ../core/system */ "./src/core/system.js").registerSystem);
+registerSystem('obb-collider', {
+  schema: {
+    showColliders: {
+      default: false
+    }
+  },
+  init: function () {
+    this.collisions = [];
+    this.colliderEls = [];
+  },
+  addCollider: function (colliderEl) {
+    this.colliderEls.push(colliderEl);
+    if (this.data.showColliders) {
+      colliderEl.components['obb-collider'].showCollider();
+    } else {
+      colliderEl.components['obb-collider'].hideCollider();
+    }
+    this.tick = this.detectCollisions;
+  },
+  removeCollider: function (colliderEl) {
+    var colliderEls = this.colliderEls;
+    var elIndex = colliderEls.indexOf(colliderEl);
+    colliderEl.hideCollider();
+    if (elIndex > -1) {
+      colliderEls.splice(elIndex, 1);
+    }
+    if (colliderEls.length === 0) {
+      this.tick = undefined;
+    }
+  },
+  registerCollision: function (componentA, componentB) {
+    var collisions = this.collisions;
+    var existingCollision = false;
+    var boundingBoxA = componentA.obb;
+    var boundingBoxB = componentB.obb;
+    var collisionMeshA = componentA.renderColliderMesh;
+    var collisionMeshB = componentB.renderColliderMesh;
+    if (collisionMeshA) {
+      collisionMeshA.material.color.set(0xff0000);
+    }
+    if (collisionMeshB) {
+      collisionMeshB.material.color.set(0xff0000);
+    }
+    for (var i = 0; i < collisions.length; i++) {
+      if (collisions[i].componentA.obb === boundingBoxA && collisions[i].componentB.obb === boundingBoxB || collisions[i].componentA.obb === boundingBoxB && collisions[i].componentB.obb === boundingBoxA) {
+        existingCollision = true;
+        collisions[i].detected = true;
+        break;
+      }
+    }
+    if (!existingCollision) {
+      collisions.push({
+        componentA: componentA,
+        componentB: componentB,
+        detected: true
+      });
+      componentA.el.emit('obbcollisionstarted', {
+        trackedObject3D: componentA.trackedObject3D,
+        withEl: componentB.el
+      });
+      componentB.el.emit('obbcollisionstarted', {
+        trackedObject3D: componentB.trackedObject3D,
+        withEl: componentA.el
+      });
+    }
+  },
+  resetCollisions: function () {
+    var collisions = this.collisions;
+    for (var i = 0; i < collisions.length; i++) {
+      collisions[i].detected = false;
+    }
+  },
+  clearCollisions: function () {
+    var collisions = this.collisions;
+    var detectedCollisions = [];
+    var componentA;
+    var componentB;
+    var collisionMeshA;
+    var collisionMeshB;
+    for (var i = 0; i < collisions.length; i++) {
+      if (!collisions[i].detected) {
+        componentA = collisions[i].componentA;
+        componentB = collisions[i].componentB;
+        collisionMeshA = componentA.renderColliderMesh;
+        collisionMeshB = componentB.renderColliderMesh;
+        if (collisionMeshA) {
+          collisionMeshA.material.color.set(0x00ff00);
+        }
+        componentA.el.emit('obbcollisionended', {
+          trackedObject3D: this.trackedObject3D,
+          withEl: componentB.el
+        });
+        if (collisionMeshB) {
+          collisionMeshB.material.color.set(0x00ff00);
+        }
+        componentB.el.emit('obbcollisionended', {
+          trackedObject3D: this.trackedObject3D,
+          withEl: componentA.el
+        });
+      } else {
+        detectedCollisions.push(collisions[i]);
+      }
+    }
+    this.collisions = detectedCollisions;
+  },
+  detectCollisions: function () {
+    var boxA;
+    var boxB;
+    var componentA;
+    var componentB;
+    var colliderEls = this.colliderEls;
+    if (colliderEls.length < 2) {
+      return;
+    }
+    this.resetCollisions();
+    for (var i = 0; i < colliderEls.length; i++) {
+      componentA = colliderEls[i].components['obb-collider'];
+      boxA = colliderEls[i].components['obb-collider'].obb;
+      // ignore bounding box with 0 volume.
+      if (boxA.halfSize.x === 0 || boxA.halfSize.y === 0 || boxA.halfSize.z === 0) {
+        continue;
+      }
+      for (var j = i + 1; j < colliderEls.length; j++) {
+        componentB = colliderEls[j].components['obb-collider'];
+        boxB = componentB.obb;
+        // ignore bounding box with 0 volume.
+        if (boxB.halfSize.x === 0 || boxB.halfSize.y === 0 || boxB.halfSize.z === 0) {
+          continue;
+        }
+        if (boxA.intersectsOBB(boxB)) {
+          this.registerCollision(componentA, componentB);
+        }
+      }
+    }
+    this.clearCollisions();
+  }
+});
+
+/***/ }),
+
 /***/ "./src/systems/renderer.js":
 /*!*********************************!*\
   !*** ./src/systems/renderer.js ***!
@@ -32339,6 +32702,9 @@ module.exports.System = registerSystem('renderer', {
     maxCanvasHeight: {
       default: 1920
     },
+    multiviewStereo: {
+      default: false
+    },
     physicallyCorrectLights: {
       default: false
     },
@@ -32359,7 +32725,7 @@ module.exports.System = registerSystem('renderer', {
     anisotropy: {
       default: 1
     },
-    sortObjects: {
+    sortTransparentObjects: {
       default: false
     },
     colorManagement: {
@@ -32378,7 +32744,6 @@ module.exports.System = registerSystem('renderer', {
     var toneMappingName = this.data.toneMapping.charAt(0).toUpperCase() + this.data.toneMapping.slice(1);
     // This is the rendering engine, such as THREE.js so copy over any persistent properties from the rendering system.
     var renderer = sceneEl.renderer;
-    renderer.sortObjects = data.sortObjects;
     renderer.useLegacyLights = !data.physicallyCorrectLights;
     renderer.toneMapping = THREE[toneMappingName + 'ToneMapping'];
     THREE.Texture.DEFAULT_ANISOTROPY = data.anisotropy;
@@ -32390,6 +32755,10 @@ module.exports.System = registerSystem('renderer', {
     if (sceneEl.hasAttribute('logarithmicDepthBuffer')) {
       warn('Component `logarithmicDepthBuffer` is deprecated. Use `renderer="logarithmicDepthBuffer: true"` instead.');
     }
+
+    // These properties are always the same, regardless of rendered oonfiguration
+    renderer.sortObjects = true;
+    renderer.setOpaqueSort(sortFrontToBack);
   },
   update: function () {
     var data = this.data;
@@ -32399,6 +32768,14 @@ module.exports.System = registerSystem('renderer', {
     renderer.toneMapping = THREE[toneMappingName + 'ToneMapping'];
     renderer.toneMappingExposure = data.exposure;
     renderer.xr.setFoveation(data.foveationLevel);
+    if (data.sortObjects) {
+      warn('`sortObjects` property is deprecated. Use `renderer="sortTransparentObjects: true"` instead.');
+    }
+    if (data.sortTransparentObjects) {
+      renderer.setTransparentSort(sortBackToFront);
+    } else {
+      renderer.setTransparentSort(sortRenderOrderOnly);
+    }
   },
   applyColorCorrection: function (texture) {
     if (!this.data.colorManagement || !texture) {
@@ -32411,7 +32788,7 @@ module.exports.System = registerSystem('renderer', {
     var data = this.data;
     var rates = xrSession.supportedFrameRates;
     if (rates && xrSession.updateTargetFrameRate) {
-      let targetRate;
+      var targetRate;
       if (rates.includes(90)) {
         targetRate = data.highRefreshRate ? 90 : 72;
       } else {
@@ -32423,6 +32800,55 @@ module.exports.System = registerSystem('renderer', {
     }
   }
 });
+
+// Custom A-Frame sort functions.
+// Variations of Three.js default sort orders here:
+// https://github.com/mrdoob/three.js/blob/ebbaecf9acacf259ea9abdcba7b6fb25cfcea2ab/src/renderers/webgl/WebGLRenderLists.js#L1
+// See: https://github.com/aframevr/aframe/issues/5332
+
+// Default sort for opaque objects:
+// - respect groupOrder & renderOrder settings
+// - sort front-to-back by z-depth from camera (this should minimize overdraw)
+// - otherwise leave objects in default order (object tree order)
+
+function sortFrontToBack(a, b) {
+  if (a.groupOrder !== b.groupOrder) {
+    return a.groupOrder - b.groupOrder;
+  }
+  if (a.renderOrder !== b.renderOrder) {
+    return a.renderOrder - b.renderOrder;
+  }
+  return a.z - b.z;
+}
+
+// Default sort for transparent objects:
+// - respect groupOrder & renderOrder settings
+// - otherwise leave objects in default order (object tree order)
+function sortRenderOrderOnly(a, b) {
+  if (a.groupOrder !== b.groupOrder) {
+    return a.groupOrder - b.groupOrder;
+  }
+  return a.renderOrder - b.renderOrder;
+}
+
+// Spatial sort for transparent objects:
+// - respect groupOrder & renderOrder settings
+// - sort back-to-front by z-depth from camera
+// - otherwise leave objects in default order (object tree order)
+function sortBackToFront(a, b) {
+  if (a.groupOrder !== b.groupOrder) {
+    return a.groupOrder - b.groupOrder;
+  }
+  if (a.renderOrder !== b.renderOrder) {
+    return a.renderOrder - b.renderOrder;
+  }
+  return b.z - a.z;
+}
+
+// exports needed for Unit Tests
+module.exports.sortFrontToBack = sortFrontToBack;
+module.exports.sortRenderOrderOnly = sortRenderOrderOnly;
+module.exports.sortBackToFront = sortBackToFront;
 
 /***/ }),
 
@@ -32770,7 +33196,6 @@ var COORDINATE_KEYS = ['x', 'y', 'z', 'w'];
 // Coordinate string regex. Handles negative, positive, and decimals.
 var regex = /^\s*((-?\d*\.{0,1}\d+(e-?\d+)?)\s+){2,3}(-?\d*\.{0,1}\d+(e-?\d+)?)\s*$/;
 module.exports.regex = regex;
-var OBJECT = 'object';
 var whitespaceRegex = /\s+/g;
 
 /**
@@ -32811,7 +33236,7 @@ function parse(value, defaultVec) {
     return value;
   }
   if (value === null || value === undefined) {
-    return typeof defaultVec === OBJECT ? extend({}, defaultVec) : defaultVec;
+    return typeof defaultVec === 'object' ? extend({}, defaultVec) : defaultVec;
   }
   coordinate = value.trim().split(whitespaceRegex);
   vec = {};
@@ -32840,7 +33265,7 @@ module.exports.parse = parse;
  */
 function stringify(data) {
   var str;
-  if (typeof data !== OBJECT) {
+  if (typeof data !== 'object') {
     return data;
   }
   str = data.x + ' ' + data.y;
@@ -33021,7 +33446,7 @@ if (isWebXRAvailable) {
       return;
     }
     if (sceneEl.hasLoaded) {
-      sceneEl.components['vr-mode-ui'].updateEnterInterfaces();
+      sceneEl.components['xr-mode-ui'].updateEnterInterfaces();
     } else {
       sceneEl.addEventListener('loaded', updateEnterInterfaces);
     }
@@ -35606,7 +36031,7 @@ var ___CSS_LOADER_URL_REPLACEMENT_2___ = _node_modules_css_loader_dist_runtime_g
 var ___CSS_LOADER_URL_REPLACEMENT_3___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_3___);
 var ___CSS_LOADER_URL_REPLACEMENT_4___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_4___);
 // Module
-___CSS_LOADER_EXPORT___.push([module.id, "/* .a-fullscreen means not embedded. */\nhtml.a-fullscreen {\n  bottom: 0;\n  left: 0;\n  position: fixed;\n  right: 0;\n  top: 0;\n}\n\nhtml.a-fullscreen body {\n  height: 100%;\n  margin: 0;\n  overflow: hidden;\n  padding: 0;\n  width: 100%;\n}\n\n/* Class is removed when doing <a-scene embedded>. */\nhtml.a-fullscreen .a-canvas {\n  width: 100% !important;\n  height: 100% !important;\n  top: 0 !important;\n  left: 0 !important;\n  right: 0 !important;\n  bottom: 0 !important;\n  position: fixed !important;\n}\n\nhtml:not(.a-fullscreen) .a-enter-vr,\nhtml:not(.a-fullscreen) .a-enter-ar {\n  right: 5px;\n  bottom: 5px;\n}\n\nhtml:not(.a-fullscreen) .a-enter-ar {\n  right: 60px;\n}\n\n/* In chrome mobile the user agent stylesheet set it to white  */\n:-webkit-full-screen {\n  background-color: transparent;\n}\n\n.a-hidden {\n  display: none !important;\n}\n\n.a-canvas {\n  height: 100%;\n  left: 0;\n  position: absolute;\n  top: 0;\n  width: 100%;\n}\n\n.a-canvas.a-grab-cursor:hover {\n  cursor: grab;\n  cursor: -moz-grab;\n  cursor: -webkit-grab;\n}\n\ncanvas.a-canvas.a-mouse-cursor-hover:hover {\n  cursor: pointer;\n}\n\n.a-inspector-loader {\n  background-color: #ed3160;\n  position: fixed;\n  left: 3px;\n  top: 3px;\n  padding: 6px 10px;\n  color: #fff;\n  text-decoration: none;\n  font-size: 12px;\n  font-family: Roboto,sans-serif;\n  text-align: center;\n  z-index: 99999;\n  width: 204px;\n}\n\n/* Inspector loader animation */\n@keyframes dots-1 { from { opacity: 0; } 25% { opacity: 1; } }\n@keyframes dots-2 { from { opacity: 0; } 50% { opacity: 1; } }\n@keyframes dots-3 { from { opacity: 0; } 75% { opacity: 1; } }\n@-webkit-keyframes dots-1 { from { opacity: 0; } 25% { opacity: 1; } }\n@-webkit-keyframes dots-2 { from { opacity: 0; } 50% { opacity: 1; } }\n@-webkit-keyframes dots-3 { from { opacity: 0; } 75% { opacity: 1; } }\n\n.a-inspector-loader .dots span {\n  animation: dots-1 2s infinite steps(1);\n  -webkit-animation: dots-1 2s infinite steps(1);\n}\n\n.a-inspector-loader .dots span:first-child + span {\n  animation-name: dots-2;\n  -webkit-animation-name: dots-2;\n}\n\n.a-inspector-loader .dots span:first-child + span + span {\n  animation-name: dots-3;\n  -webkit-animation-name: dots-3;\n}\n\na-scene {\n  display: block;\n  position: relative;\n  height: 100%;\n  width: 100%;\n}\n\na-assets,\na-scene video,\na-scene img,\na-scene audio {\n  display: none;\n}\n\n.a-enter-vr-modal,\n.a-orientation-modal {\n  font-family: Consolas, Andale Mono, Courier New, monospace;\n}\n\n.a-enter-vr-modal a {\n  border-bottom: 1px solid #fff;\n  padding: 2px 0;\n  text-decoration: none;\n  transition: .1s color ease-in;\n}\n\n.a-enter-vr-modal a:hover {\n  background-color: #fff;\n  color: #111;\n  padding: 2px 4px;\n  position: relative;\n  left: -4px;\n}\n\n.a-enter-vr,\n.a-enter-ar {\n  font-family: sans-serif, monospace;\n  font-size: 13px;\n  width: 100%;\n  font-weight: 200;\n  line-height: 16px;\n  position: absolute;\n  right: 20px;\n  bottom: 20px;\n}\n\n.a-enter-ar {\n  right: 80px;\n}\n\n.a-enter-vr-button,\n.a-enter-vr-modal,\n.a-enter-vr-modal a {\n  color: #fff;\n  user-select: none;\n  outline: none;\n}\n\n.a-enter-vr-button {\n  background: rgba(0, 0, 0, 0.35) url(" + ___CSS_LOADER_URL_REPLACEMENT_0___ + ") 50% 50% no-repeat;\n}\n\n.a-enter-ar-button {\n  background: rgba(0, 0, 0, 0.20) url(" + ___CSS_LOADER_URL_REPLACEMENT_1___ + ") 50% 50% no-repeat;\n}\n\n.a-enter-vr.fullscreen .a-enter-vr-button {\n  background-image: url(" + ___CSS_LOADER_URL_REPLACEMENT_2___ + ");\n}\n\n.a-enter-vr-button,\n.a-enter-ar-button {\n  background-size: 90% 90%;\n  border: 0;\n  bottom: 0;\n  cursor: pointer;\n  min-width: 58px;\n  min-height: 34px;\n  /* 1.74418604651 */\n  /*\n    In order to keep the aspect ratio when resizing\n    padding-top percentages are relative to the containing block's width.\n    http://stackoverflow.com/questions/12121090/responsively-change-div-size-keeping-aspect-ratio\n  */\n  padding-right: 0;\n  padding-top: 0;\n  position: absolute;\n  right: 0;\n  transition: background-color .05s ease;\n  -webkit-transition: background-color .05s ease;\n  z-index: 9999;\n  border-radius: 8px;\n  touch-action: manipulation; /* Prevent iOS double tap zoom on the button */\n}\n\n.a-enter-ar-button {\n  background-size: 100% 90%;\n  margin-right: 10px;\n  border-radius: 7px;\n}\n\n.a-enter-ar-button:active,\n.a-enter-ar-button:hover,\n.a-enter-vr-button:active,\n.a-enter-vr-button:hover {\n  background-color: #ef2d5e;\n}\n\n.a-enter-vr-button.resethover {\n  background-color: rgba(0, 0, 0, 0.35);\n}\n\n\n.a-enter-vr-modal {\n  background-color: #666;\n  border-radius: 0;\n  display: none;\n  min-height: 32px;\n  margin-right: 70px;\n  padding: 9px;\n  width: 280px;\n  right: 2%;\n  position: absolute;\n}\n\n.a-enter-vr-modal:after {\n  border-bottom: 10px solid transparent;\n  border-left: 10px solid #666;\n  border-top: 10px solid transparent;\n  display: inline-block;\n  content: '';\n  position: absolute;\n  right: -5px;\n  top: 5px;\n  width: 0;\n  height: 0;\n}\n\n.a-enter-vr-modal p,\n.a-enter-vr-modal a {\n  display: inline;\n}\n\n.a-enter-vr-modal p {\n  margin: 0;\n}\n\n.a-enter-vr-modal p:after {\n  content: ' ';\n}\n\n.a-orientation-modal {\n  background: rgba(244, 244, 244, 1) url(" + ___CSS_LOADER_URL_REPLACEMENT_3___ + ") center no-repeat;\n  background-size: 50% 50%;\n  bottom: 0;\n  font-size: 14px;\n  font-weight: 600;\n  left: 0;\n  line-height: 20px;\n  right: 0;\n  position: fixed;\n  top: 0;\n  z-index: 9999999;\n}\n\n.a-orientation-modal:after {\n  color: #666;\n  content: \"Insert phone into Cardboard holder.\";\n  display: block;\n  position: absolute;\n  text-align: center;\n  top: 70%;\n  transform: translateY(-70%);\n  width: 100%;\n}\n\n.a-orientation-modal button {\n  background: url(" + ___CSS_LOADER_URL_REPLACEMENT_4___ + ") no-repeat;\n  border: none;\n  height: 50px;\n  text-indent: -9999px;\n  width: 50px;\n}\n\n.a-loader-title {\n  background-color: rgba(0, 0, 0, 0.6);\n  font-family: sans-serif, monospace;\n  text-align: center;\n  font-size: 20px;\n  height: 50px;\n  font-weight: 300;\n  line-height: 50px;\n  position: absolute;\n  right: 0px;\n  left: 0px;\n  top: 0px;\n  color: white;\n}\n\n.a-modal {\n  position: absolute;\n  background: rgba(0, 0, 0, 0.60);\n  background-size: 50% 50%;\n  bottom: 0;\n  font-size: 14px;\n  font-weight: 600;\n  left: 0;\n  line-height: 20px;\n  right: 0;\n  position: fixed;\n  top: 0;\n  z-index: 9999999;\n}\n\n.a-dialog {\n  position: relative;\n  left: 50%;\n  top: 50%;\n  transform: translate(-50%, -50%);\n  z-index: 199995;\n  width: 300px;\n  height: 200px;\n  background-size: contain;\n  background-color: white;\n  font-family: sans-serif, monospace;\n  font-size: 20px;\n  border-radius: 3px;\n  padding: 6px;\n}\n\n.a-dialog-text-container {\n  width: 100%;\n  height: 70%;\n  align-self: flex-start;\n  display: flex;\n  justify-content: center;\n  align-content: center;\n  flex-direction: column;\n}\n\n.a-dialog-text {\n  display: inline-block;\n  font-weight: normal;\n  font-size: 14pt;\n  margin: 8px;\n}\n\n.a-dialog-buttons-container {\n  display: inline-flex;\n  align-self: flex-end;\n  width: 100%;\n  height: 30%;\n}\n\n.a-dialog-button {\n  cursor: pointer;\n  align-self: center;\n  opacity: 0.9;\n  height: 80%;\n  width: 50%;\n  font-size: 12pt;\n  margin: 4px;\n  border-radius: 2px;\n  text-align:center;\n  border: none;\n  display: inline-block;\n  -webkit-transition: all 0.25s ease-in-out;\n  transition: all 0.25s ease-in-out;\n  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 1px 2px rgba(0, 0, 0, 0.20);\n  user-select: none;\n}\n\n.a-dialog-permission-button:hover {\n  box-shadow: 0 7px 14px rgba(0,0,0,0.20), 0 2px 2px rgba(0,0,0,0.20);\n}\n\n.a-dialog-allow-button {\n  background-color: #00ceff;\n}\n\n.a-dialog-deny-button {\n  background-color: #ff005b;\n}\n\n.a-dialog-ok-button {\n  background-color: #00ceff;\n  width: 100%;\n}\n\n.a-dom-overlay:not(.a-no-style) {\n  overflow: hidden;\n  position: absolute;\n  pointer-events: none;\n  box-sizing: border-box;\n  bottom: 0;\n  left: 0;\n  right: 0;\n  top: 0;\n  padding: 1em;\n}\n\n.a-dom-overlay:not(.a-no-style)>* {\n  pointer-events: auto;\n}\n", "",{"version":3,"sources":["webpack://./src/style/aframe.css"],"names":[],"mappings":"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","sourcesContent":["/* .a-fullscreen means not embedded. */\nhtml.a-fullscreen {\n  bottom: 0;\n  left: 0;\n  position: fixed;\n  right: 0;\n  top: 0;\n}\n\nhtml.a-fullscreen body {\n  height: 100%;\n  margin: 0;\n  overflow: hidden;\n  padding: 0;\n  width: 100%;\n}\n\n/* Class is removed when doing <a-scene embedded>. */\nhtml.a-fullscreen .a-canvas {\n  width: 100% !important;\n  height: 100% !important;\n  top: 0 !important;\n  left: 0 !important;\n  right: 0 !important;\n  bottom: 0 !important;\n  position: fixed !important;\n}\n\nhtml:not(.a-fullscreen) .a-enter-vr,\nhtml:not(.a-fullscreen) .a-enter-ar {\n  right: 5px;\n  bottom: 5px;\n}\n\nhtml:not(.a-fullscreen) .a-enter-ar {\n  right: 60px;\n}\n\n/* In chrome mobile the user agent stylesheet set it to white  */\n:-webkit-full-screen {\n  background-color: transparent;\n}\n\n.a-hidden {\n  display: none !important;\n}\n\n.a-canvas {\n  height: 100%;\n  left: 0;\n  position: absolute;\n  top: 0;\n  width: 100%;\n}\n\n.a-canvas.a-grab-cursor:hover {\n  cursor: grab;\n  cursor: -moz-grab;\n  cursor: -webkit-grab;\n}\n\ncanvas.a-canvas.a-mouse-cursor-hover:hover {\n  cursor: pointer;\n}\n\n.a-inspector-loader {\n  background-color: #ed3160;\n  position: fixed;\n  left: 3px;\n  top: 3px;\n  padding: 6px 10px;\n  color: #fff;\n  text-decoration: none;\n  font-size: 12px;\n  font-family: Roboto,sans-serif;\n  text-align: center;\n  z-index: 99999;\n  width: 204px;\n}\n\n/* Inspector loader animation */\n@keyframes dots-1 { from { opacity: 0; } 25% { opacity: 1; } }\n@keyframes dots-2 { from { opacity: 0; } 50% { opacity: 1; } }\n@keyframes dots-3 { from { opacity: 0; } 75% { opacity: 1; } }\n@-webkit-keyframes dots-1 { from { opacity: 0; } 25% { opacity: 1; } }\n@-webkit-keyframes dots-2 { from { opacity: 0; } 50% { opacity: 1; } }\n@-webkit-keyframes dots-3 { from { opacity: 0; } 75% { opacity: 1; } }\n\n.a-inspector-loader .dots span {\n  animation: dots-1 2s infinite steps(1);\n  -webkit-animation: dots-1 2s infinite steps(1);\n}\n\n.a-inspector-loader .dots span:first-child + span {\n  animation-name: dots-2;\n  -webkit-animation-name: dots-2;\n}\n\n.a-inspector-loader .dots span:first-child + span + span {\n  animation-name: dots-3;\n  -webkit-animation-name: dots-3;\n}\n\na-scene {\n  display: block;\n  position: relative;\n  height: 100%;\n  width: 100%;\n}\n\na-assets,\na-scene video,\na-scene img,\na-scene audio {\n  display: none;\n}\n\n.a-enter-vr-modal,\n.a-orientation-modal {\n  font-family: Consolas, Andale Mono, Courier New, monospace;\n}\n\n.a-enter-vr-modal a {\n  border-bottom: 1px solid #fff;\n  padding: 2px 0;\n  text-decoration: none;\n  transition: .1s color ease-in;\n}\n\n.a-enter-vr-modal a:hover {\n  background-color: #fff;\n  color: #111;\n  padding: 2px 4px;\n  position: relative;\n  left: -4px;\n}\n\n.a-enter-vr,\n.a-enter-ar {\n  font-family: sans-serif, monospace;\n  font-size: 13px;\n  width: 100%;\n  font-weight: 200;\n  line-height: 16px;\n  position: absolute;\n  right: 20px;\n  bottom: 20px;\n}\n\n.a-enter-ar {\n  right: 80px;\n}\n\n.a-enter-vr-button,\n.a-enter-vr-modal,\n.a-enter-vr-modal a {\n  color: #fff;\n  user-select: none;\n  outline: none;\n}\n\n.a-enter-vr-button {\n  background: rgba(0, 0, 0, 0.35) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='108' height='62' viewBox='0 0 108 62'%3E%3Ctitle%3Eaframe-vrmode-noborder-reduced-tracking%3C/title%3E%3Cpath d='M68.81,21.56H64.23v8.27h4.58a4.13,4.13,0,0,0,3.1-1.09,4.2,4.2,0,0,0,1-3,4.24,4.24,0,0,0-1-3A4.05,4.05,0,0,0,68.81,21.56Z' fill='%23fff'/%3E%3Cpath d='M96,0H12A12,12,0,0,0,0,12V50A12,12,0,0,0,12,62H96a12,12,0,0,0,12-12V12A12,12,0,0,0,96,0ZM41.9,46H34L24,16h8l6,21.84,6-21.84H52Zm39.29,0H73.44L68.15,35.39H64.23V46H57V16H68.81q5.32,0,8.34,2.37a8,8,0,0,1,3,6.69,9.68,9.68,0,0,1-1.27,5.18,8.9,8.9,0,0,1-4,3.34l6.26,12.11Z' fill='%23fff'/%3E%3C/svg%3E\") 50% 50% no-repeat;\n}\n\n.a-enter-ar-button {\n  background: rgba(0, 0, 0, 0.20) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='108' height='62' viewBox='0 0 108 62'%3E%3Ctitle%3Eaframe-armode-noborder-reduced-tracking%3C/title%3E%3Cpath d='M96,0H12A12,12,0,0,0,0,12V50A12,12,0,0,0,12,62H96a12,12,0,0,0,12-12V12A12,12,0,0,0,96,0Zm8,50a8,8,0,0,1-8,8H12a8,8,0,0,1-8-8V12a8,8,0,0,1,8-8H96a8,8,0,0,1,8,8Z' fill='%23fff'/%3E%3Cpath d='M43.35,39.82H32.51L30.45,46H23.88L35,16h5.73L52,46H45.43Zm-9.17-5h7.5L37.91,23.58Z' fill='%23fff'/%3E%3Cpath d='M68.11,35H63.18V46H57V16H68.15q5.31,0,8.2,2.37a8.18,8.18,0,0,1,2.88,6.7,9.22,9.22,0,0,1-1.33,5.12,9.09,9.09,0,0,1-4,3.26l6.49,12.26V46H73.73Zm-4.93-5h5a5.09,5.09,0,0,0,3.6-1.18,4.21,4.21,0,0,0,1.28-3.27,4.56,4.56,0,0,0-1.2-3.34A5,5,0,0,0,68.15,21h-5Z' fill='%23fff'/%3E%3C/svg%3E\") 50% 50% no-repeat;\n}\n\n.a-enter-vr.fullscreen .a-enter-vr-button {\n  background-image: url(\"data:image/svg+xml,%3C%3Fxml version='1.0' encoding='UTF-8' standalone='no'%3F%3E%3Csvg width='108' height='62' viewBox='0 0 108 62' version='1.1' id='svg320' sodipodi:docname='fullscreen-aframe.svg' xml:space='preserve' inkscape:version='1.2.1 (9c6d41e  2022-07-14)' xmlns:inkscape='http://www.inkscape.org/namespaces/inkscape' xmlns:sodipodi='http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd' xmlns='http://www.w3.org/2000/svg' xmlns:svg='http://www.w3.org/2000/svg' xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns%23' xmlns:cc='http://creativecommons.org/ns%23' xmlns:dc='http://purl.org/dc/elements/1.1/'%3E%3Cdefs id='defs324' /%3E%3Csodipodi:namedview id='namedview322' pagecolor='%23ffffff' bordercolor='%23000000' borderopacity='0.25' inkscape:showpageshadow='2' inkscape:pageopacity='0.0' inkscape:pagecheckerboard='0' inkscape:deskcolor='%23d1d1d1' showgrid='false' inkscape:zoom='3.8064516' inkscape:cx='91.423729' inkscape:cy='-1.4449153' inkscape:window-width='1440' inkscape:window-height='847' inkscape:window-x='32' inkscape:window-y='25' inkscape:window-maximized='0' inkscape:current-layer='svg320' /%3E%3Ctitle id='title312'%3Eaframe-armode-noborder-reduced-tracking%3C/title%3E%3Cpath d='M96 0H12A12 12 0 0 0 0 12V50A12 12 0 0 0 12 62H96a12 12 0 0 0 12-12V12A12 12 0 0 0 96 0Zm8 50a8 8 0 0 1-8 8H12a8 8 0 0 1-8-8V12a8 8 0 0 1 8-8H96a8 8 0 0 1 8 8Z' fill='%23fff' id='path314' style='fill:%23ffffff' /%3E%3Cg id='g356' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g358' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g360' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g362' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g364' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g366' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g368' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g370' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g372' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g374' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g376' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g378' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g380' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g382' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g384' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cmetadata id='metadata561'%3E%3Crdf:RDF%3E%3Ccc:Work rdf:about=''%3E%3Cdc:title%3Eaframe-armode-noborder-reduced-tracking%3C/dc:title%3E%3C/cc:Work%3E%3C/rdf:RDF%3E%3C/metadata%3E%3Cpath d='m 98.168511 40.083649 c 0 -1.303681 -0.998788 -2.358041 -2.239389 -2.358041 -1.230088 0.0031 -2.240892 1.05436 -2.240892 2.358041 v 4.881296 l -9.041661 -9.041662 c -0.874129 -0.875631 -2.288954 -0.875631 -3.16308 0 -0.874129 0.874126 -0.874129 2.293459 0 3.167585 l 8.995101 8.992101 h -4.858767 c -1.323206 0.0031 -2.389583 1.004796 -2.389583 2.239386 0 1.237598 1.066377 2.237888 2.389583 2.237888 h 10.154599 c 1.323206 0 2.388082 -0.998789 2.392587 -2.237888 -0.0044 -0.03305 -0.009 -0.05858 -0.0134 -0.09161 0.0046 -0.04207 0.0134 -0.08712 0.0134 -0.13066 V 40.085172 h -1.52e-4' id='path596' style='fill:%23ffffff%3Bstroke-width:1.50194' /%3E%3Cpath d='m 23.091002 35.921781 -9.026643 9.041662 v -4.881296 c 0 -1.303681 -1.009302 -2.355037 -2.242393 -2.358041 -1.237598 0 -2.237888 1.05436 -2.237888 2.358041 l -0.0031 10.016421 c 0 0.04356 0.01211 0.08862 0.0015 0.130659 -0.0031 0.03153 -0.009 0.05709 -0.01211 0.09161 0.0031 1.239099 1.069379 2.237888 2.391085 2.237888 h 10.156101 c 1.320202 0 2.388079 -1.000291 2.388079 -2.237888 0 -1.234591 -1.067877 -2.236383 -2.388079 -2.239387 h -4.858767 l 8.995101 -8.9921 c 0.871126 -0.874127 0.871126 -2.293459 0 -3.167586 -0.875628 -0.877132 -2.291957 -0.877132 -3.169087 -1.52e-4' id='path598' style='fill:%23ffffff%3Bstroke-width:1.50194' /%3E%3Cpath d='m 84.649572 25.978033 9.041662 -9.041664 v 4.881298 c 0 1.299176 1.010806 2.350532 2.240891 2.355037 1.240601 0 2.23939 -1.055861 2.23939 -2.355037 V 11.798242 c 0 -0.04356 -0.009 -0.08862 -0.0134 -0.127671 0.0044 -0.03153 0.009 -0.06157 0.0134 -0.09313 -0.0044 -1.240598 -1.069379 -2.2393873 -2.391085 -2.2393873 h -10.1546 c -1.323205 0 -2.38958 0.9987893 -2.38958 2.2393873 0 1.233091 1.066375 2.237887 2.38958 2.240891 h 4.858768 l -8.995102 8.9921 c -0.874129 0.872625 -0.874129 2.288954 0 3.161578 0.874127 0.880137 2.288951 0.880137 3.16308 1.5e-4' id='path600' style='fill:%23ffffff%3Bstroke-width:1.50194' /%3E%3Cpath d='m 17.264988 13.822853 h 4.857265 c 1.320202 -0.0031 2.388079 -1.0078 2.388079 -2.240889 0 -1.240601 -1.067877 -2.2393893 -2.388079 -2.2393893 H 11.967654 c -1.321707 0 -2.388082 0.9987883 -2.391085 2.2393893 0.0031 0.03153 0.009 0.06157 0.01211 0.09313 -0.0031 0.03905 -0.0015 0.08262 -0.0015 0.127671 l 0.0031 10.020926 c 0 1.299176 1.00029 2.355038 2.237887 2.355038 1.233092 -0.0044 2.242393 -1.055862 2.242393 -2.355038 v -4.881295 l 9.026644 9.041661 c 0.877132 0.878635 2.293459 0.878635 3.169087 0 0.871125 -0.872624 0.871125 -2.288953 0 -3.161577 l -8.995282 -8.993616' id='path602' style='fill:%23ffffff%3Bstroke-width:1.50194' /%3E%3C/svg%3E\");\n}\n\n.a-enter-vr-button,\n.a-enter-ar-button {\n  background-size: 90% 90%;\n  border: 0;\n  bottom: 0;\n  cursor: pointer;\n  min-width: 58px;\n  min-height: 34px;\n  /* 1.74418604651 */\n  /*\n    In order to keep the aspect ratio when resizing\n    padding-top percentages are relative to the containing block's width.\n    http://stackoverflow.com/questions/12121090/responsively-change-div-size-keeping-aspect-ratio\n  */\n  padding-right: 0;\n  padding-top: 0;\n  position: absolute;\n  right: 0;\n  transition: background-color .05s ease;\n  -webkit-transition: background-color .05s ease;\n  z-index: 9999;\n  border-radius: 8px;\n  touch-action: manipulation; /* Prevent iOS double tap zoom on the button */\n}\n\n.a-enter-ar-button {\n  background-size: 100% 90%;\n  margin-right: 10px;\n  border-radius: 7px;\n}\n\n.a-enter-ar-button:active,\n.a-enter-ar-button:hover,\n.a-enter-vr-button:active,\n.a-enter-vr-button:hover {\n  background-color: #ef2d5e;\n}\n\n.a-enter-vr-button.resethover {\n  background-color: rgba(0, 0, 0, 0.35);\n}\n\n\n.a-enter-vr-modal {\n  background-color: #666;\n  border-radius: 0;\n  display: none;\n  min-height: 32px;\n  margin-right: 70px;\n  padding: 9px;\n  width: 280px;\n  right: 2%;\n  position: absolute;\n}\n\n.a-enter-vr-modal:after {\n  border-bottom: 10px solid transparent;\n  border-left: 10px solid #666;\n  border-top: 10px solid transparent;\n  display: inline-block;\n  content: '';\n  position: absolute;\n  right: -5px;\n  top: 5px;\n  width: 0;\n  height: 0;\n}\n\n.a-enter-vr-modal p,\n.a-enter-vr-modal a {\n  display: inline;\n}\n\n.a-enter-vr-modal p {\n  margin: 0;\n}\n\n.a-enter-vr-modal p:after {\n  content: ' ';\n}\n\n.a-orientation-modal {\n  background: rgba(244, 244, 244, 1) url(data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20xmlns%3Axlink%3D%22http%3A//www.w3.org/1999/xlink%22%20version%3D%221.1%22%20x%3D%220px%22%20y%3D%220px%22%20viewBox%3D%220%200%2090%2090%22%20enable-background%3D%22new%200%200%2090%2090%22%20xml%3Aspace%3D%22preserve%22%3E%3Cpolygon%20points%3D%220%2C0%200%2C0%200%2C0%20%22%3E%3C/polygon%3E%3Cg%3E%3Cpath%20d%3D%22M71.545%2C48.145h-31.98V20.743c0-2.627-2.138-4.765-4.765-4.765H18.456c-2.628%2C0-4.767%2C2.138-4.767%2C4.765v42.789%20%20%20c0%2C2.628%2C2.138%2C4.766%2C4.767%2C4.766h5.535v0.959c0%2C2.628%2C2.138%2C4.765%2C4.766%2C4.765h42.788c2.628%2C0%2C4.766-2.137%2C4.766-4.765V52.914%20%20%20C76.311%2C50.284%2C74.173%2C48.145%2C71.545%2C48.145z%20M18.455%2C16.935h16.344c2.1%2C0%2C3.808%2C1.708%2C3.808%2C3.808v27.401H37.25V22.636%20%20%20c0-0.264-0.215-0.478-0.479-0.478H16.482c-0.264%2C0-0.479%2C0.214-0.479%2C0.478v36.585c0%2C0.264%2C0.215%2C0.478%2C0.479%2C0.478h7.507v7.644%20%20%20h-5.534c-2.101%2C0-3.81-1.709-3.81-3.81V20.743C14.645%2C18.643%2C16.354%2C16.935%2C18.455%2C16.935z%20M16.96%2C23.116h19.331v25.031h-7.535%20%20%20c-2.628%2C0-4.766%2C2.139-4.766%2C4.768v5.828h-7.03V23.116z%20M71.545%2C73.064H28.757c-2.101%2C0-3.81-1.708-3.81-3.808V52.914%20%20%20c0-2.102%2C1.709-3.812%2C3.81-3.812h42.788c2.1%2C0%2C3.809%2C1.71%2C3.809%2C3.812v16.343C75.354%2C71.356%2C73.645%2C73.064%2C71.545%2C73.064z%22%3E%3C/path%3E%3Cpath%20d%3D%22M28.919%2C58.424c-1.466%2C0-2.659%2C1.193-2.659%2C2.66c0%2C1.466%2C1.193%2C2.658%2C2.659%2C2.658c1.468%2C0%2C2.662-1.192%2C2.662-2.658%20%20%20C31.581%2C59.617%2C30.387%2C58.424%2C28.919%2C58.424z%20M28.919%2C62.786c-0.939%2C0-1.703-0.764-1.703-1.702c0-0.939%2C0.764-1.704%2C1.703-1.704%20%20%20c0.94%2C0%2C1.705%2C0.765%2C1.705%2C1.704C30.623%2C62.022%2C29.858%2C62.786%2C28.919%2C62.786z%22%3E%3C/path%3E%3Cpath%20d%3D%22M69.654%2C50.461H33.069c-0.264%2C0-0.479%2C0.215-0.479%2C0.479v20.288c0%2C0.264%2C0.215%2C0.478%2C0.479%2C0.478h36.585%20%20%20c0.263%2C0%2C0.477-0.214%2C0.477-0.478V50.939C70.131%2C50.676%2C69.917%2C50.461%2C69.654%2C50.461z%20M69.174%2C51.417V70.75H33.548V51.417H69.174z%22%3E%3C/path%3E%3Cpath%20d%3D%22M45.201%2C30.296c6.651%2C0%2C12.233%2C5.351%2C12.551%2C11.977l-3.033-2.638c-0.193-0.165-0.507-0.142-0.675%2C0.048%20%20%20c-0.174%2C0.198-0.153%2C0.501%2C0.045%2C0.676l3.883%2C3.375c0.09%2C0.075%2C0.198%2C0.115%2C0.312%2C0.115c0.141%2C0%2C0.273-0.061%2C0.362-0.166%20%20%20l3.371-3.877c0.173-0.2%2C0.151-0.502-0.047-0.675c-0.194-0.166-0.508-0.144-0.676%2C0.048l-2.592%2C2.979%20%20%20c-0.18-3.417-1.629-6.605-4.099-9.001c-2.538-2.461-5.877-3.817-9.404-3.817c-0.264%2C0-0.479%2C0.215-0.479%2C0.479%20%20%20C44.72%2C30.083%2C44.936%2C30.296%2C45.201%2C30.296z%22%3E%3C/path%3E%3C/g%3E%3C/svg%3E) center no-repeat;\n  background-size: 50% 50%;\n  bottom: 0;\n  font-size: 14px;\n  font-weight: 600;\n  left: 0;\n  line-height: 20px;\n  right: 0;\n  position: fixed;\n  top: 0;\n  z-index: 9999999;\n}\n\n.a-orientation-modal:after {\n  color: #666;\n  content: \"Insert phone into Cardboard holder.\";\n  display: block;\n  position: absolute;\n  text-align: center;\n  top: 70%;\n  transform: translateY(-70%);\n  width: 100%;\n}\n\n.a-orientation-modal button {\n  background: url(data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20xmlns%3Axlink%3D%22http%3A//www.w3.org/1999/xlink%22%20version%3D%221.1%22%20x%3D%220px%22%20y%3D%220px%22%20viewBox%3D%220%200%20100%20100%22%20enable-background%3D%22new%200%200%20100%20100%22%20xml%3Aspace%3D%22preserve%22%3E%3Cpath%20fill%3D%22%23000000%22%20d%3D%22M55.209%2C50l17.803-17.803c1.416-1.416%2C1.416-3.713%2C0-5.129c-1.416-1.417-3.713-1.417-5.129%2C0L50.08%2C44.872%20%20L32.278%2C27.069c-1.416-1.417-3.714-1.417-5.129%2C0c-1.417%2C1.416-1.417%2C3.713%2C0%2C5.129L44.951%2C50L27.149%2C67.803%20%20c-1.417%2C1.416-1.417%2C3.713%2C0%2C5.129c0.708%2C0.708%2C1.636%2C1.062%2C2.564%2C1.062c0.928%2C0%2C1.856-0.354%2C2.564-1.062L50.08%2C55.13l17.803%2C17.802%20%20c0.708%2C0.708%2C1.637%2C1.062%2C2.564%2C1.062s1.856-0.354%2C2.564-1.062c1.416-1.416%2C1.416-3.713%2C0-5.129L55.209%2C50z%22%3E%3C/path%3E%3C/svg%3E) no-repeat;\n  border: none;\n  height: 50px;\n  text-indent: -9999px;\n  width: 50px;\n}\n\n.a-loader-title {\n  background-color: rgba(0, 0, 0, 0.6);\n  font-family: sans-serif, monospace;\n  text-align: center;\n  font-size: 20px;\n  height: 50px;\n  font-weight: 300;\n  line-height: 50px;\n  position: absolute;\n  right: 0px;\n  left: 0px;\n  top: 0px;\n  color: white;\n}\n\n.a-modal {\n  position: absolute;\n  background: rgba(0, 0, 0, 0.60);\n  background-size: 50% 50%;\n  bottom: 0;\n  font-size: 14px;\n  font-weight: 600;\n  left: 0;\n  line-height: 20px;\n  right: 0;\n  position: fixed;\n  top: 0;\n  z-index: 9999999;\n}\n\n.a-dialog {\n  position: relative;\n  left: 50%;\n  top: 50%;\n  transform: translate(-50%, -50%);\n  z-index: 199995;\n  width: 300px;\n  height: 200px;\n  background-size: contain;\n  background-color: white;\n  font-family: sans-serif, monospace;\n  font-size: 20px;\n  border-radius: 3px;\n  padding: 6px;\n}\n\n.a-dialog-text-container {\n  width: 100%;\n  height: 70%;\n  align-self: flex-start;\n  display: flex;\n  justify-content: center;\n  align-content: center;\n  flex-direction: column;\n}\n\n.a-dialog-text {\n  display: inline-block;\n  font-weight: normal;\n  font-size: 14pt;\n  margin: 8px;\n}\n\n.a-dialog-buttons-container {\n  display: inline-flex;\n  align-self: flex-end;\n  width: 100%;\n  height: 30%;\n}\n\n.a-dialog-button {\n  cursor: pointer;\n  align-self: center;\n  opacity: 0.9;\n  height: 80%;\n  width: 50%;\n  font-size: 12pt;\n  margin: 4px;\n  border-radius: 2px;\n  text-align:center;\n  border: none;\n  display: inline-block;\n  -webkit-transition: all 0.25s ease-in-out;\n  transition: all 0.25s ease-in-out;\n  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 1px 2px rgba(0, 0, 0, 0.20);\n  user-select: none;\n}\n\n.a-dialog-permission-button:hover {\n  box-shadow: 0 7px 14px rgba(0,0,0,0.20), 0 2px 2px rgba(0,0,0,0.20);\n}\n\n.a-dialog-allow-button {\n  background-color: #00ceff;\n}\n\n.a-dialog-deny-button {\n  background-color: #ff005b;\n}\n\n.a-dialog-ok-button {\n  background-color: #00ceff;\n  width: 100%;\n}\n\n.a-dom-overlay:not(.a-no-style) {\n  overflow: hidden;\n  position: absolute;\n  pointer-events: none;\n  box-sizing: border-box;\n  bottom: 0;\n  left: 0;\n  right: 0;\n  top: 0;\n  padding: 1em;\n}\n\n.a-dom-overlay:not(.a-no-style)>* {\n  pointer-events: auto;\n}\n"],"sourceRoot":""}]);
+___CSS_LOADER_EXPORT___.push([module.id, "/* .a-fullscreen means not embedded. */\nhtml.a-fullscreen {\n  bottom: 0;\n  left: 0;\n  position: fixed;\n  right: 0;\n  top: 0;\n}\n\nhtml.a-fullscreen body {\n  height: 100%;\n  margin: 0;\n  overflow: hidden;\n  padding: 0;\n  width: 100%;\n}\n\n/* Class is removed when doing <a-scene embedded>. */\nhtml.a-fullscreen .a-canvas {\n  width: 100% !important;\n  height: 100% !important;\n  top: 0 !important;\n  left: 0 !important;\n  right: 0 !important;\n  bottom: 0 !important;\n  position: fixed !important;\n}\n\nhtml:not(.a-fullscreen) .a-enter-vr,\nhtml:not(.a-fullscreen) .a-enter-ar {\n  right: 5px;\n  bottom: 5px;\n}\n\nhtml:not(.a-fullscreen) .a-enter-ar {\n  right: 60px;\n}\n\n/* In chrome mobile the user agent stylesheet set it to white  */\n:-webkit-full-screen {\n  background-color: transparent;\n}\n\n.a-hidden {\n  display: none !important;\n}\n\n.a-canvas {\n  height: 100%;\n  left: 0;\n  position: absolute;\n  top: 0;\n  width: 100%;\n}\n\n.a-canvas.a-grab-cursor:hover {\n  cursor: grab;\n  cursor: -moz-grab;\n  cursor: -webkit-grab;\n}\n\ncanvas.a-canvas.a-mouse-cursor-hover:hover {\n  cursor: pointer;\n}\n\n.a-inspector-loader {\n  background-color: #ed3160;\n  position: fixed;\n  left: 3px;\n  top: 3px;\n  padding: 6px 10px;\n  color: #fff;\n  text-decoration: none;\n  font-size: 12px;\n  font-family: Roboto,sans-serif;\n  text-align: center;\n  z-index: 99999;\n  width: 204px;\n}\n\n/* Inspector loader animation */\n@keyframes dots-1 { from { opacity: 0; } 25% { opacity: 1; } }\n@keyframes dots-2 { from { opacity: 0; } 50% { opacity: 1; } }\n@keyframes dots-3 { from { opacity: 0; } 75% { opacity: 1; } }\n@-webkit-keyframes dots-1 { from { opacity: 0; } 25% { opacity: 1; } }\n@-webkit-keyframes dots-2 { from { opacity: 0; } 50% { opacity: 1; } }\n@-webkit-keyframes dots-3 { from { opacity: 0; } 75% { opacity: 1; } }\n\n.a-inspector-loader .dots span {\n  animation: dots-1 2s infinite steps(1);\n  -webkit-animation: dots-1 2s infinite steps(1);\n}\n\n.a-inspector-loader .dots span:first-child + span {\n  animation-name: dots-2;\n  -webkit-animation-name: dots-2;\n}\n\n.a-inspector-loader .dots span:first-child + span + span {\n  animation-name: dots-3;\n  -webkit-animation-name: dots-3;\n}\n\na-scene {\n  display: block;\n  position: relative;\n  height: 100%;\n  width: 100%;\n}\n\na-assets,\na-scene video,\na-scene img,\na-scene audio {\n  display: none;\n}\n\n.a-enter-vr-modal,\n.a-orientation-modal {\n  font-family: Consolas, Andale Mono, Courier New, monospace;\n}\n\n.a-enter-vr-modal a {\n  border-bottom: 1px solid #fff;\n  padding: 2px 0;\n  text-decoration: none;\n  transition: .1s color ease-in;\n}\n\n.a-enter-vr-modal a:hover {\n  background-color: #fff;\n  color: #111;\n  padding: 2px 4px;\n  position: relative;\n  left: -4px;\n}\n\n.a-enter-vr,\n.a-enter-ar {\n  font-family: sans-serif, monospace;\n  font-size: 13px;\n  width: 100%;\n  font-weight: 200;\n  line-height: 16px;\n  position: absolute;\n  right: 20px;\n  bottom: 20px;\n}\n\n.a-enter-ar.xr {\n  right: 90px;\n}\n\n.a-enter-vr-button,\n.a-enter-vr-modal,\n.a-enter-vr-modal a {\n  color: #fff;\n  user-select: none;\n  outline: none;\n}\n\n.a-enter-vr-button {\n  background: rgba(0, 0, 0, 0.35) url(" + ___CSS_LOADER_URL_REPLACEMENT_0___ + ") 50% 50% no-repeat;\n}\n\n.a-enter-ar-button {\n  background: rgba(0, 0, 0, 0.20) url(" + ___CSS_LOADER_URL_REPLACEMENT_1___ + ") 50% 50% no-repeat;\n}\n\n.a-enter-vr.fullscreen .a-enter-vr-button {\n  background-image: url(" + ___CSS_LOADER_URL_REPLACEMENT_2___ + ");\n}\n\n.a-enter-vr-button,\n.a-enter-ar-button {\n  background-size: 90% 90%;\n  border: 0;\n  bottom: 0;\n  cursor: pointer;\n  min-width: 58px;\n  min-height: 34px;\n  /* 1.74418604651 */\n  /*\n    In order to keep the aspect ratio when resizing\n    padding-top percentages are relative to the containing block's width.\n    http://stackoverflow.com/questions/12121090/responsively-change-div-size-keeping-aspect-ratio\n  */\n  padding-right: 0;\n  padding-top: 0;\n  position: absolute;\n  right: 0;\n  transition: background-color .05s ease;\n  -webkit-transition: background-color .05s ease;\n  z-index: 9999;\n  border-radius: 8px;\n  touch-action: manipulation; /* Prevent iOS double tap zoom on the button */\n}\n\n.a-enter-ar-button {\n  background-size: 100% 90%;\n  border-radius: 7px;\n}\n\n.a-enter-ar-button:active,\n.a-enter-ar-button:hover,\n.a-enter-vr-button:active,\n.a-enter-vr-button:hover {\n  background-color: #ef2d5e;\n}\n\n.a-enter-vr-button.resethover {\n  background-color: rgba(0, 0, 0, 0.35);\n}\n\n.a-enter-vr-modal {\n  background-color: #666;\n  border-radius: 0;\n  display: none;\n  min-height: 32px;\n  margin-right: 70px;\n  padding: 9px;\n  width: 280px;\n  right: 2%;\n  position: absolute;\n}\n\n.a-enter-vr-modal:after {\n  border-bottom: 10px solid transparent;\n  border-left: 10px solid #666;\n  border-top: 10px solid transparent;\n  display: inline-block;\n  content: '';\n  position: absolute;\n  right: -5px;\n  top: 5px;\n  width: 0;\n  height: 0;\n}\n\n.a-enter-vr-modal p,\n.a-enter-vr-modal a {\n  display: inline;\n}\n\n.a-enter-vr-modal p {\n  margin: 0;\n}\n\n.a-enter-vr-modal p:after {\n  content: ' ';\n}\n\n.a-orientation-modal {\n  background: rgba(244, 244, 244, 1) url(" + ___CSS_LOADER_URL_REPLACEMENT_3___ + ") center no-repeat;\n  background-size: 50% 50%;\n  bottom: 0;\n  font-size: 14px;\n  font-weight: 600;\n  left: 0;\n  line-height: 20px;\n  right: 0;\n  position: fixed;\n  top: 0;\n  z-index: 9999999;\n}\n\n.a-orientation-modal:after {\n  color: #666;\n  content: \"Insert phone into Cardboard holder.\";\n  display: block;\n  position: absolute;\n  text-align: center;\n  top: 70%;\n  transform: translateY(-70%);\n  width: 100%;\n}\n\n.a-orientation-modal button {\n  background: url(" + ___CSS_LOADER_URL_REPLACEMENT_4___ + ") no-repeat;\n  border: none;\n  height: 50px;\n  text-indent: -9999px;\n  width: 50px;\n}\n\n.a-loader-title {\n  background-color: rgba(0, 0, 0, 0.6);\n  font-family: sans-serif, monospace;\n  text-align: center;\n  font-size: 20px;\n  height: 50px;\n  font-weight: 300;\n  line-height: 50px;\n  position: absolute;\n  right: 0px;\n  left: 0px;\n  top: 0px;\n  color: white;\n}\n\n.a-modal {\n  position: absolute;\n  background: rgba(0, 0, 0, 0.60);\n  background-size: 50% 50%;\n  bottom: 0;\n  font-size: 14px;\n  font-weight: 600;\n  left: 0;\n  line-height: 20px;\n  right: 0;\n  position: fixed;\n  top: 0;\n  z-index: 9999999;\n}\n\n.a-dialog {\n  position: relative;\n  left: 50%;\n  top: 50%;\n  transform: translate(-50%, -50%);\n  z-index: 199995;\n  width: 300px;\n  height: 200px;\n  background-size: contain;\n  background-color: white;\n  font-family: sans-serif, monospace;\n  font-size: 20px;\n  border-radius: 3px;\n  padding: 6px;\n}\n\n.a-dialog-text-container {\n  width: 100%;\n  height: 70%;\n  align-self: flex-start;\n  display: flex;\n  justify-content: center;\n  align-content: center;\n  flex-direction: column;\n}\n\n.a-dialog-text {\n  display: inline-block;\n  font-weight: normal;\n  font-size: 14pt;\n  margin: 8px;\n}\n\n.a-dialog-buttons-container {\n  display: inline-flex;\n  align-self: flex-end;\n  width: 100%;\n  height: 30%;\n}\n\n.a-dialog-button {\n  cursor: pointer;\n  align-self: center;\n  opacity: 0.9;\n  height: 80%;\n  width: 50%;\n  font-size: 12pt;\n  margin: 4px;\n  border-radius: 2px;\n  text-align:center;\n  border: none;\n  display: inline-block;\n  -webkit-transition: all 0.25s ease-in-out;\n  transition: all 0.25s ease-in-out;\n  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 1px 2px rgba(0, 0, 0, 0.20);\n  user-select: none;\n}\n\n.a-dialog-permission-button:hover {\n  box-shadow: 0 7px 14px rgba(0,0,0,0.20), 0 2px 2px rgba(0,0,0,0.20);\n}\n\n.a-dialog-allow-button {\n  background-color: #00ceff;\n}\n\n.a-dialog-deny-button {\n  background-color: #ff005b;\n}\n\n.a-dialog-ok-button {\n  background-color: #00ceff;\n  width: 100%;\n}\n\n.a-dom-overlay:not(.a-no-style) {\n  overflow: hidden;\n  position: absolute;\n  pointer-events: none;\n  box-sizing: border-box;\n  bottom: 0;\n  left: 0;\n  right: 0;\n  top: 0;\n  padding: 1em;\n}\n\n.a-dom-overlay:not(.a-no-style)>* {\n  pointer-events: auto;\n}\n", "",{"version":3,"sources":["webpack://./src/style/aframe.css"],"names":[],"mappings":"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","sourcesContent":["/* .a-fullscreen means not embedded. */\nhtml.a-fullscreen {\n  bottom: 0;\n  left: 0;\n  position: fixed;\n  right: 0;\n  top: 0;\n}\n\nhtml.a-fullscreen body {\n  height: 100%;\n  margin: 0;\n  overflow: hidden;\n  padding: 0;\n  width: 100%;\n}\n\n/* Class is removed when doing <a-scene embedded>. */\nhtml.a-fullscreen .a-canvas {\n  width: 100% !important;\n  height: 100% !important;\n  top: 0 !important;\n  left: 0 !important;\n  right: 0 !important;\n  bottom: 0 !important;\n  position: fixed !important;\n}\n\nhtml:not(.a-fullscreen) .a-enter-vr,\nhtml:not(.a-fullscreen) .a-enter-ar {\n  right: 5px;\n  bottom: 5px;\n}\n\nhtml:not(.a-fullscreen) .a-enter-ar {\n  right: 60px;\n}\n\n/* In chrome mobile the user agent stylesheet set it to white  */\n:-webkit-full-screen {\n  background-color: transparent;\n}\n\n.a-hidden {\n  display: none !important;\n}\n\n.a-canvas {\n  height: 100%;\n  left: 0;\n  position: absolute;\n  top: 0;\n  width: 100%;\n}\n\n.a-canvas.a-grab-cursor:hover {\n  cursor: grab;\n  cursor: -moz-grab;\n  cursor: -webkit-grab;\n}\n\ncanvas.a-canvas.a-mouse-cursor-hover:hover {\n  cursor: pointer;\n}\n\n.a-inspector-loader {\n  background-color: #ed3160;\n  position: fixed;\n  left: 3px;\n  top: 3px;\n  padding: 6px 10px;\n  color: #fff;\n  text-decoration: none;\n  font-size: 12px;\n  font-family: Roboto,sans-serif;\n  text-align: center;\n  z-index: 99999;\n  width: 204px;\n}\n\n/* Inspector loader animation */\n@keyframes dots-1 { from { opacity: 0; } 25% { opacity: 1; } }\n@keyframes dots-2 { from { opacity: 0; } 50% { opacity: 1; } }\n@keyframes dots-3 { from { opacity: 0; } 75% { opacity: 1; } }\n@-webkit-keyframes dots-1 { from { opacity: 0; } 25% { opacity: 1; } }\n@-webkit-keyframes dots-2 { from { opacity: 0; } 50% { opacity: 1; } }\n@-webkit-keyframes dots-3 { from { opacity: 0; } 75% { opacity: 1; } }\n\n.a-inspector-loader .dots span {\n  animation: dots-1 2s infinite steps(1);\n  -webkit-animation: dots-1 2s infinite steps(1);\n}\n\n.a-inspector-loader .dots span:first-child + span {\n  animation-name: dots-2;\n  -webkit-animation-name: dots-2;\n}\n\n.a-inspector-loader .dots span:first-child + span + span {\n  animation-name: dots-3;\n  -webkit-animation-name: dots-3;\n}\n\na-scene {\n  display: block;\n  position: relative;\n  height: 100%;\n  width: 100%;\n}\n\na-assets,\na-scene video,\na-scene img,\na-scene audio {\n  display: none;\n}\n\n.a-enter-vr-modal,\n.a-orientation-modal {\n  font-family: Consolas, Andale Mono, Courier New, monospace;\n}\n\n.a-enter-vr-modal a {\n  border-bottom: 1px solid #fff;\n  padding: 2px 0;\n  text-decoration: none;\n  transition: .1s color ease-in;\n}\n\n.a-enter-vr-modal a:hover {\n  background-color: #fff;\n  color: #111;\n  padding: 2px 4px;\n  position: relative;\n  left: -4px;\n}\n\n.a-enter-vr,\n.a-enter-ar {\n  font-family: sans-serif, monospace;\n  font-size: 13px;\n  width: 100%;\n  font-weight: 200;\n  line-height: 16px;\n  position: absolute;\n  right: 20px;\n  bottom: 20px;\n}\n\n.a-enter-ar.xr {\n  right: 90px;\n}\n\n.a-enter-vr-button,\n.a-enter-vr-modal,\n.a-enter-vr-modal a {\n  color: #fff;\n  user-select: none;\n  outline: none;\n}\n\n.a-enter-vr-button {\n  background: rgba(0, 0, 0, 0.35) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='108' height='62' viewBox='0 0 108 62'%3E%3Ctitle%3Eaframe-vrmode-noborder-reduced-tracking%3C/title%3E%3Cpath d='M68.81,21.56H64.23v8.27h4.58a4.13,4.13,0,0,0,3.1-1.09,4.2,4.2,0,0,0,1-3,4.24,4.24,0,0,0-1-3A4.05,4.05,0,0,0,68.81,21.56Z' fill='%23fff'/%3E%3Cpath d='M96,0H12A12,12,0,0,0,0,12V50A12,12,0,0,0,12,62H96a12,12,0,0,0,12-12V12A12,12,0,0,0,96,0ZM41.9,46H34L24,16h8l6,21.84,6-21.84H52Zm39.29,0H73.44L68.15,35.39H64.23V46H57V16H68.81q5.32,0,8.34,2.37a8,8,0,0,1,3,6.69,9.68,9.68,0,0,1-1.27,5.18,8.9,8.9,0,0,1-4,3.34l6.26,12.11Z' fill='%23fff'/%3E%3C/svg%3E\") 50% 50% no-repeat;\n}\n\n.a-enter-ar-button {\n  background: rgba(0, 0, 0, 0.20) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='108' height='62' viewBox='0 0 108 62'%3E%3Ctitle%3Eaframe-armode-noborder-reduced-tracking%3C/title%3E%3Cpath d='M96,0H12A12,12,0,0,0,0,12V50A12,12,0,0,0,12,62H96a12,12,0,0,0,12-12V12A12,12,0,0,0,96,0Zm8,50a8,8,0,0,1-8,8H12a8,8,0,0,1-8-8V12a8,8,0,0,1,8-8H96a8,8,0,0,1,8,8Z' fill='%23fff'/%3E%3Cpath d='M43.35,39.82H32.51L30.45,46H23.88L35,16h5.73L52,46H45.43Zm-9.17-5h7.5L37.91,23.58Z' fill='%23fff'/%3E%3Cpath d='M68.11,35H63.18V46H57V16H68.15q5.31,0,8.2,2.37a8.18,8.18,0,0,1,2.88,6.7,9.22,9.22,0,0,1-1.33,5.12,9.09,9.09,0,0,1-4,3.26l6.49,12.26V46H73.73Zm-4.93-5h5a5.09,5.09,0,0,0,3.6-1.18,4.21,4.21,0,0,0,1.28-3.27,4.56,4.56,0,0,0-1.2-3.34A5,5,0,0,0,68.15,21h-5Z' fill='%23fff'/%3E%3C/svg%3E\") 50% 50% no-repeat;\n}\n\n.a-enter-vr.fullscreen .a-enter-vr-button {\n  background-image: url(\"data:image/svg+xml,%3C%3Fxml version='1.0' encoding='UTF-8' standalone='no'%3F%3E%3Csvg width='108' height='62' viewBox='0 0 108 62' version='1.1' id='svg320' sodipodi:docname='fullscreen-aframe.svg' xml:space='preserve' inkscape:version='1.2.1 (9c6d41e  2022-07-14)' xmlns:inkscape='http://www.inkscape.org/namespaces/inkscape' xmlns:sodipodi='http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd' xmlns='http://www.w3.org/2000/svg' xmlns:svg='http://www.w3.org/2000/svg' xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns%23' xmlns:cc='http://creativecommons.org/ns%23' xmlns:dc='http://purl.org/dc/elements/1.1/'%3E%3Cdefs id='defs324' /%3E%3Csodipodi:namedview id='namedview322' pagecolor='%23ffffff' bordercolor='%23000000' borderopacity='0.25' inkscape:showpageshadow='2' inkscape:pageopacity='0.0' inkscape:pagecheckerboard='0' inkscape:deskcolor='%23d1d1d1' showgrid='false' inkscape:zoom='3.8064516' inkscape:cx='91.423729' inkscape:cy='-1.4449153' inkscape:window-width='1440' inkscape:window-height='847' inkscape:window-x='32' inkscape:window-y='25' inkscape:window-maximized='0' inkscape:current-layer='svg320' /%3E%3Ctitle id='title312'%3Eaframe-armode-noborder-reduced-tracking%3C/title%3E%3Cpath d='M96 0H12A12 12 0 0 0 0 12V50A12 12 0 0 0 12 62H96a12 12 0 0 0 12-12V12A12 12 0 0 0 96 0Zm8 50a8 8 0 0 1-8 8H12a8 8 0 0 1-8-8V12a8 8 0 0 1 8-8H96a8 8 0 0 1 8 8Z' fill='%23fff' id='path314' style='fill:%23ffffff' /%3E%3Cg id='g356' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g358' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g360' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g362' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g364' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g366' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g368' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g370' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g372' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g374' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g376' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g378' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g380' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g382' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cg id='g384' transform='translate(-206.61017 -232.61864)'%3E%3C/g%3E%3Cmetadata id='metadata561'%3E%3Crdf:RDF%3E%3Ccc:Work rdf:about=''%3E%3Cdc:title%3Eaframe-armode-noborder-reduced-tracking%3C/dc:title%3E%3C/cc:Work%3E%3C/rdf:RDF%3E%3C/metadata%3E%3Cpath d='m 98.168511 40.083649 c 0 -1.303681 -0.998788 -2.358041 -2.239389 -2.358041 -1.230088 0.0031 -2.240892 1.05436 -2.240892 2.358041 v 4.881296 l -9.041661 -9.041662 c -0.874129 -0.875631 -2.288954 -0.875631 -3.16308 0 -0.874129 0.874126 -0.874129 2.293459 0 3.167585 l 8.995101 8.992101 h -4.858767 c -1.323206 0.0031 -2.389583 1.004796 -2.389583 2.239386 0 1.237598 1.066377 2.237888 2.389583 2.237888 h 10.154599 c 1.323206 0 2.388082 -0.998789 2.392587 -2.237888 -0.0044 -0.03305 -0.009 -0.05858 -0.0134 -0.09161 0.0046 -0.04207 0.0134 -0.08712 0.0134 -0.13066 V 40.085172 h -1.52e-4' id='path596' style='fill:%23ffffff%3Bstroke-width:1.50194' /%3E%3Cpath d='m 23.091002 35.921781 -9.026643 9.041662 v -4.881296 c 0 -1.303681 -1.009302 -2.355037 -2.242393 -2.358041 -1.237598 0 -2.237888 1.05436 -2.237888 2.358041 l -0.0031 10.016421 c 0 0.04356 0.01211 0.08862 0.0015 0.130659 -0.0031 0.03153 -0.009 0.05709 -0.01211 0.09161 0.0031 1.239099 1.069379 2.237888 2.391085 2.237888 h 10.156101 c 1.320202 0 2.388079 -1.000291 2.388079 -2.237888 0 -1.234591 -1.067877 -2.236383 -2.388079 -2.239387 h -4.858767 l 8.995101 -8.9921 c 0.871126 -0.874127 0.871126 -2.293459 0 -3.167586 -0.875628 -0.877132 -2.291957 -0.877132 -3.169087 -1.52e-4' id='path598' style='fill:%23ffffff%3Bstroke-width:1.50194' /%3E%3Cpath d='m 84.649572 25.978033 9.041662 -9.041664 v 4.881298 c 0 1.299176 1.010806 2.350532 2.240891 2.355037 1.240601 0 2.23939 -1.055861 2.23939 -2.355037 V 11.798242 c 0 -0.04356 -0.009 -0.08862 -0.0134 -0.127671 0.0044 -0.03153 0.009 -0.06157 0.0134 -0.09313 -0.0044 -1.240598 -1.069379 -2.2393873 -2.391085 -2.2393873 h -10.1546 c -1.323205 0 -2.38958 0.9987893 -2.38958 2.2393873 0 1.233091 1.066375 2.237887 2.38958 2.240891 h 4.858768 l -8.995102 8.9921 c -0.874129 0.872625 -0.874129 2.288954 0 3.161578 0.874127 0.880137 2.288951 0.880137 3.16308 1.5e-4' id='path600' style='fill:%23ffffff%3Bstroke-width:1.50194' /%3E%3Cpath d='m 17.264988 13.822853 h 4.857265 c 1.320202 -0.0031 2.388079 -1.0078 2.388079 -2.240889 0 -1.240601 -1.067877 -2.2393893 -2.388079 -2.2393893 H 11.967654 c -1.321707 0 -2.388082 0.9987883 -2.391085 2.2393893 0.0031 0.03153 0.009 0.06157 0.01211 0.09313 -0.0031 0.03905 -0.0015 0.08262 -0.0015 0.127671 l 0.0031 10.020926 c 0 1.299176 1.00029 2.355038 2.237887 2.355038 1.233092 -0.0044 2.242393 -1.055862 2.242393 -2.355038 v -4.881295 l 9.026644 9.041661 c 0.877132 0.878635 2.293459 0.878635 3.169087 0 0.871125 -0.872624 0.871125 -2.288953 0 -3.161577 l -8.995282 -8.993616' id='path602' style='fill:%23ffffff%3Bstroke-width:1.50194' /%3E%3C/svg%3E\");\n}\n\n.a-enter-vr-button,\n.a-enter-ar-button {\n  background-size: 90% 90%;\n  border: 0;\n  bottom: 0;\n  cursor: pointer;\n  min-width: 58px;\n  min-height: 34px;\n  /* 1.74418604651 */\n  /*\n    In order to keep the aspect ratio when resizing\n    padding-top percentages are relative to the containing block's width.\n    http://stackoverflow.com/questions/12121090/responsively-change-div-size-keeping-aspect-ratio\n  */\n  padding-right: 0;\n  padding-top: 0;\n  position: absolute;\n  right: 0;\n  transition: background-color .05s ease;\n  -webkit-transition: background-color .05s ease;\n  z-index: 9999;\n  border-radius: 8px;\n  touch-action: manipulation; /* Prevent iOS double tap zoom on the button */\n}\n\n.a-enter-ar-button {\n  background-size: 100% 90%;\n  border-radius: 7px;\n}\n\n.a-enter-ar-button:active,\n.a-enter-ar-button:hover,\n.a-enter-vr-button:active,\n.a-enter-vr-button:hover {\n  background-color: #ef2d5e;\n}\n\n.a-enter-vr-button.resethover {\n  background-color: rgba(0, 0, 0, 0.35);\n}\n\n.a-enter-vr-modal {\n  background-color: #666;\n  border-radius: 0;\n  display: none;\n  min-height: 32px;\n  margin-right: 70px;\n  padding: 9px;\n  width: 280px;\n  right: 2%;\n  position: absolute;\n}\n\n.a-enter-vr-modal:after {\n  border-bottom: 10px solid transparent;\n  border-left: 10px solid #666;\n  border-top: 10px solid transparent;\n  display: inline-block;\n  content: '';\n  position: absolute;\n  right: -5px;\n  top: 5px;\n  width: 0;\n  height: 0;\n}\n\n.a-enter-vr-modal p,\n.a-enter-vr-modal a {\n  display: inline;\n}\n\n.a-enter-vr-modal p {\n  margin: 0;\n}\n\n.a-enter-vr-modal p:after {\n  content: ' ';\n}\n\n.a-orientation-modal {\n  background: rgba(244, 244, 244, 1) url(data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20xmlns%3Axlink%3D%22http%3A//www.w3.org/1999/xlink%22%20version%3D%221.1%22%20x%3D%220px%22%20y%3D%220px%22%20viewBox%3D%220%200%2090%2090%22%20enable-background%3D%22new%200%200%2090%2090%22%20xml%3Aspace%3D%22preserve%22%3E%3Cpolygon%20points%3D%220%2C0%200%2C0%200%2C0%20%22%3E%3C/polygon%3E%3Cg%3E%3Cpath%20d%3D%22M71.545%2C48.145h-31.98V20.743c0-2.627-2.138-4.765-4.765-4.765H18.456c-2.628%2C0-4.767%2C2.138-4.767%2C4.765v42.789%20%20%20c0%2C2.628%2C2.138%2C4.766%2C4.767%2C4.766h5.535v0.959c0%2C2.628%2C2.138%2C4.765%2C4.766%2C4.765h42.788c2.628%2C0%2C4.766-2.137%2C4.766-4.765V52.914%20%20%20C76.311%2C50.284%2C74.173%2C48.145%2C71.545%2C48.145z%20M18.455%2C16.935h16.344c2.1%2C0%2C3.808%2C1.708%2C3.808%2C3.808v27.401H37.25V22.636%20%20%20c0-0.264-0.215-0.478-0.479-0.478H16.482c-0.264%2C0-0.479%2C0.214-0.479%2C0.478v36.585c0%2C0.264%2C0.215%2C0.478%2C0.479%2C0.478h7.507v7.644%20%20%20h-5.534c-2.101%2C0-3.81-1.709-3.81-3.81V20.743C14.645%2C18.643%2C16.354%2C16.935%2C18.455%2C16.935z%20M16.96%2C23.116h19.331v25.031h-7.535%20%20%20c-2.628%2C0-4.766%2C2.139-4.766%2C4.768v5.828h-7.03V23.116z%20M71.545%2C73.064H28.757c-2.101%2C0-3.81-1.708-3.81-3.808V52.914%20%20%20c0-2.102%2C1.709-3.812%2C3.81-3.812h42.788c2.1%2C0%2C3.809%2C1.71%2C3.809%2C3.812v16.343C75.354%2C71.356%2C73.645%2C73.064%2C71.545%2C73.064z%22%3E%3C/path%3E%3Cpath%20d%3D%22M28.919%2C58.424c-1.466%2C0-2.659%2C1.193-2.659%2C2.66c0%2C1.466%2C1.193%2C2.658%2C2.659%2C2.658c1.468%2C0%2C2.662-1.192%2C2.662-2.658%20%20%20C31.581%2C59.617%2C30.387%2C58.424%2C28.919%2C58.424z%20M28.919%2C62.786c-0.939%2C0-1.703-0.764-1.703-1.702c0-0.939%2C0.764-1.704%2C1.703-1.704%20%20%20c0.94%2C0%2C1.705%2C0.765%2C1.705%2C1.704C30.623%2C62.022%2C29.858%2C62.786%2C28.919%2C62.786z%22%3E%3C/path%3E%3Cpath%20d%3D%22M69.654%2C50.461H33.069c-0.264%2C0-0.479%2C0.215-0.479%2C0.479v20.288c0%2C0.264%2C0.215%2C0.478%2C0.479%2C0.478h36.585%20%20%20c0.263%2C0%2C0.477-0.214%2C0.477-0.478V50.939C70.131%2C50.676%2C69.917%2C50.461%2C69.654%2C50.461z%20M69.174%2C51.417V70.75H33.548V51.417H69.174z%22%3E%3C/path%3E%3Cpath%20d%3D%22M45.201%2C30.296c6.651%2C0%2C12.233%2C5.351%2C12.551%2C11.977l-3.033-2.638c-0.193-0.165-0.507-0.142-0.675%2C0.048%20%20%20c-0.174%2C0.198-0.153%2C0.501%2C0.045%2C0.676l3.883%2C3.375c0.09%2C0.075%2C0.198%2C0.115%2C0.312%2C0.115c0.141%2C0%2C0.273-0.061%2C0.362-0.166%20%20%20l3.371-3.877c0.173-0.2%2C0.151-0.502-0.047-0.675c-0.194-0.166-0.508-0.144-0.676%2C0.048l-2.592%2C2.979%20%20%20c-0.18-3.417-1.629-6.605-4.099-9.001c-2.538-2.461-5.877-3.817-9.404-3.817c-0.264%2C0-0.479%2C0.215-0.479%2C0.479%20%20%20C44.72%2C30.083%2C44.936%2C30.296%2C45.201%2C30.296z%22%3E%3C/path%3E%3C/g%3E%3C/svg%3E) center no-repeat;\n  background-size: 50% 50%;\n  bottom: 0;\n  font-size: 14px;\n  font-weight: 600;\n  left: 0;\n  line-height: 20px;\n  right: 0;\n  position: fixed;\n  top: 0;\n  z-index: 9999999;\n}\n\n.a-orientation-modal:after {\n  color: #666;\n  content: \"Insert phone into Cardboard holder.\";\n  display: block;\n  position: absolute;\n  text-align: center;\n  top: 70%;\n  transform: translateY(-70%);\n  width: 100%;\n}\n\n.a-orientation-modal button {\n  background: url(data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20xmlns%3Axlink%3D%22http%3A//www.w3.org/1999/xlink%22%20version%3D%221.1%22%20x%3D%220px%22%20y%3D%220px%22%20viewBox%3D%220%200%20100%20100%22%20enable-background%3D%22new%200%200%20100%20100%22%20xml%3Aspace%3D%22preserve%22%3E%3Cpath%20fill%3D%22%23000000%22%20d%3D%22M55.209%2C50l17.803-17.803c1.416-1.416%2C1.416-3.713%2C0-5.129c-1.416-1.417-3.713-1.417-5.129%2C0L50.08%2C44.872%20%20L32.278%2C27.069c-1.416-1.417-3.714-1.417-5.129%2C0c-1.417%2C1.416-1.417%2C3.713%2C0%2C5.129L44.951%2C50L27.149%2C67.803%20%20c-1.417%2C1.416-1.417%2C3.713%2C0%2C5.129c0.708%2C0.708%2C1.636%2C1.062%2C2.564%2C1.062c0.928%2C0%2C1.856-0.354%2C2.564-1.062L50.08%2C55.13l17.803%2C17.802%20%20c0.708%2C0.708%2C1.637%2C1.062%2C2.564%2C1.062s1.856-0.354%2C2.564-1.062c1.416-1.416%2C1.416-3.713%2C0-5.129L55.209%2C50z%22%3E%3C/path%3E%3C/svg%3E) no-repeat;\n  border: none;\n  height: 50px;\n  text-indent: -9999px;\n  width: 50px;\n}\n\n.a-loader-title {\n  background-color: rgba(0, 0, 0, 0.6);\n  font-family: sans-serif, monospace;\n  text-align: center;\n  font-size: 20px;\n  height: 50px;\n  font-weight: 300;\n  line-height: 50px;\n  position: absolute;\n  right: 0px;\n  left: 0px;\n  top: 0px;\n  color: white;\n}\n\n.a-modal {\n  position: absolute;\n  background: rgba(0, 0, 0, 0.60);\n  background-size: 50% 50%;\n  bottom: 0;\n  font-size: 14px;\n  font-weight: 600;\n  left: 0;\n  line-height: 20px;\n  right: 0;\n  position: fixed;\n  top: 0;\n  z-index: 9999999;\n}\n\n.a-dialog {\n  position: relative;\n  left: 50%;\n  top: 50%;\n  transform: translate(-50%, -50%);\n  z-index: 199995;\n  width: 300px;\n  height: 200px;\n  background-size: contain;\n  background-color: white;\n  font-family: sans-serif, monospace;\n  font-size: 20px;\n  border-radius: 3px;\n  padding: 6px;\n}\n\n.a-dialog-text-container {\n  width: 100%;\n  height: 70%;\n  align-self: flex-start;\n  display: flex;\n  justify-content: center;\n  align-content: center;\n  flex-direction: column;\n}\n\n.a-dialog-text {\n  display: inline-block;\n  font-weight: normal;\n  font-size: 14pt;\n  margin: 8px;\n}\n\n.a-dialog-buttons-container {\n  display: inline-flex;\n  align-self: flex-end;\n  width: 100%;\n  height: 30%;\n}\n\n.a-dialog-button {\n  cursor: pointer;\n  align-self: center;\n  opacity: 0.9;\n  height: 80%;\n  width: 50%;\n  font-size: 12pt;\n  margin: 4px;\n  border-radius: 2px;\n  text-align:center;\n  border: none;\n  display: inline-block;\n  -webkit-transition: all 0.25s ease-in-out;\n  transition: all 0.25s ease-in-out;\n  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 1px 2px rgba(0, 0, 0, 0.20);\n  user-select: none;\n}\n\n.a-dialog-permission-button:hover {\n  box-shadow: 0 7px 14px rgba(0,0,0,0.20), 0 2px 2px rgba(0,0,0,0.20);\n}\n\n.a-dialog-allow-button {\n  background-color: #00ceff;\n}\n\n.a-dialog-deny-button {\n  background-color: #ff005b;\n}\n\n.a-dialog-ok-button {\n  background-color: #00ceff;\n  width: 100%;\n}\n\n.a-dom-overlay:not(.a-no-style) {\n  overflow: hidden;\n  position: absolute;\n  pointer-events: none;\n  box-sizing: border-box;\n  bottom: 0;\n  left: 0;\n  right: 0;\n  top: 0;\n  padding: 1em;\n}\n\n.a-dom-overlay:not(.a-no-style)>* {\n  pointer-events: auto;\n}\n"],"sourceRoot":""}]);
 // Exports
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
 
@@ -44808,6 +45233,349 @@ class OBJLoader extends three__WEBPACK_IMPORTED_MODULE_0__.Loader {
 
 /***/ }),
 
+/***/ "./node_modules/super-three/examples/jsm/math/OBB.js":
+/*!***********************************************************!*\
+  !*** ./node_modules/super-three/examples/jsm/math/OBB.js ***!
+  \***********************************************************/
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "OBB": () => (/* binding */ OBB)
+/* harmony export */ });
+/* harmony import */ var three__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! three */ "./node_modules/super-three/build/three.module.js");
+
+
+// module scope helper variables
+
+const a = {
+  c: null,
+  // center
+  u: [new three__WEBPACK_IMPORTED_MODULE_0__.Vector3(), new three__WEBPACK_IMPORTED_MODULE_0__.Vector3(), new three__WEBPACK_IMPORTED_MODULE_0__.Vector3()],
+  // basis vectors
+  e: [] // half width
+};
+
+const b = {
+  c: null,
+  // center
+  u: [new three__WEBPACK_IMPORTED_MODULE_0__.Vector3(), new three__WEBPACK_IMPORTED_MODULE_0__.Vector3(), new three__WEBPACK_IMPORTED_MODULE_0__.Vector3()],
+  // basis vectors
+  e: [] // half width
+};
+
+const R = [[], [], []];
+const AbsR = [[], [], []];
+const t = [];
+const xAxis = new three__WEBPACK_IMPORTED_MODULE_0__.Vector3();
+const yAxis = new three__WEBPACK_IMPORTED_MODULE_0__.Vector3();
+const zAxis = new three__WEBPACK_IMPORTED_MODULE_0__.Vector3();
+const v1 = new three__WEBPACK_IMPORTED_MODULE_0__.Vector3();
+const size = new three__WEBPACK_IMPORTED_MODULE_0__.Vector3();
+const closestPoint = new three__WEBPACK_IMPORTED_MODULE_0__.Vector3();
+const rotationMatrix = new three__WEBPACK_IMPORTED_MODULE_0__.Matrix3();
+const aabb = new three__WEBPACK_IMPORTED_MODULE_0__.Box3();
+const matrix = new three__WEBPACK_IMPORTED_MODULE_0__.Matrix4();
+const inverse = new three__WEBPACK_IMPORTED_MODULE_0__.Matrix4();
+const localRay = new three__WEBPACK_IMPORTED_MODULE_0__.Ray();
+
+// OBB
+
+class OBB {
+  constructor(center = new three__WEBPACK_IMPORTED_MODULE_0__.Vector3(), halfSize = new three__WEBPACK_IMPORTED_MODULE_0__.Vector3(), rotation = new three__WEBPACK_IMPORTED_MODULE_0__.Matrix3()) {
+    this.center = center;
+    this.halfSize = halfSize;
+    this.rotation = rotation;
+  }
+  set(center, halfSize, rotation) {
+    this.center = center;
+    this.halfSize = halfSize;
+    this.rotation = rotation;
+    return this;
+  }
+  copy(obb) {
+    this.center.copy(obb.center);
+    this.halfSize.copy(obb.halfSize);
+    this.rotation.copy(obb.rotation);
+    return this;
+  }
+  clone() {
+    return new this.constructor().copy(this);
+  }
+  getSize(result) {
+    return result.copy(this.halfSize).multiplyScalar(2);
+  }
+
+  /**
+  * Reference: Closest Point on OBB to Point in Real-Time Collision Detection
+  * by Christer Ericson (chapter 5.1.4)
+  */
+  clampPoint(point, result) {
+    const halfSize = this.halfSize;
+    v1.subVectors(point, this.center);
+    this.rotation.extractBasis(xAxis, yAxis, zAxis);
+
+    // start at the center position of the OBB
+
+    result.copy(this.center);
+
+    // project the target onto the OBB axes and walk towards that point
+
+    const x = three__WEBPACK_IMPORTED_MODULE_0__.MathUtils.clamp(v1.dot(xAxis), -halfSize.x, halfSize.x);
+    result.add(xAxis.multiplyScalar(x));
+    const y = three__WEBPACK_IMPORTED_MODULE_0__.MathUtils.clamp(v1.dot(yAxis), -halfSize.y, halfSize.y);
+    result.add(yAxis.multiplyScalar(y));
+    const z = three__WEBPACK_IMPORTED_MODULE_0__.MathUtils.clamp(v1.dot(zAxis), -halfSize.z, halfSize.z);
+    result.add(zAxis.multiplyScalar(z));
+    return result;
+  }
+  containsPoint(point) {
+    v1.subVectors(point, this.center);
+    this.rotation.extractBasis(xAxis, yAxis, zAxis);
+
+    // project v1 onto each axis and check if these points lie inside the OBB
+
+    return Math.abs(v1.dot(xAxis)) <= this.halfSize.x && Math.abs(v1.dot(yAxis)) <= this.halfSize.y && Math.abs(v1.dot(zAxis)) <= this.halfSize.z;
+  }
+  intersectsBox3(box3) {
+    return this.intersectsOBB(obb.fromBox3(box3));
+  }
+  intersectsSphere(sphere) {
+    // find the point on the OBB closest to the sphere center
+
+    this.clampPoint(sphere.center, closestPoint);
+
+    // if that point is inside the sphere, the OBB and sphere intersect
+
+    return closestPoint.distanceToSquared(sphere.center) <= sphere.radius * sphere.radius;
+  }
+
+  /**
+  * Reference: OBB-OBB Intersection in Real-Time Collision Detection
+  * by Christer Ericson (chapter 4.4.1)
+  *
+  */
+  intersectsOBB(obb, epsilon = Number.EPSILON) {
+    // prepare data structures (the code uses the same nomenclature like the reference)
+
+    a.c = this.center;
+    a.e[0] = this.halfSize.x;
+    a.e[1] = this.halfSize.y;
+    a.e[2] = this.halfSize.z;
+    this.rotation.extractBasis(a.u[0], a.u[1], a.u[2]);
+    b.c = obb.center;
+    b.e[0] = obb.halfSize.x;
+    b.e[1] = obb.halfSize.y;
+    b.e[2] = obb.halfSize.z;
+    obb.rotation.extractBasis(b.u[0], b.u[1], b.u[2]);
+
+    // compute rotation matrix expressing b in a's coordinate frame
+
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        R[i][j] = a.u[i].dot(b.u[j]);
+      }
+    }
+
+    // compute translation vector
+
+    v1.subVectors(b.c, a.c);
+
+    // bring translation into a's coordinate frame
+
+    t[0] = v1.dot(a.u[0]);
+    t[1] = v1.dot(a.u[1]);
+    t[2] = v1.dot(a.u[2]);
+
+    // compute common subexpressions. Add in an epsilon term to
+    // counteract arithmetic errors when two edges are parallel and
+    // their cross product is (near) null
+
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        AbsR[i][j] = Math.abs(R[i][j]) + epsilon;
+      }
+    }
+    let ra, rb;
+
+    // test axes L = A0, L = A1, L = A2
+
+    for (let i = 0; i < 3; i++) {
+      ra = a.e[i];
+      rb = b.e[0] * AbsR[i][0] + b.e[1] * AbsR[i][1] + b.e[2] * AbsR[i][2];
+      if (Math.abs(t[i]) > ra + rb) return false;
+    }
+
+    // test axes L = B0, L = B1, L = B2
+
+    for (let i = 0; i < 3; i++) {
+      ra = a.e[0] * AbsR[0][i] + a.e[1] * AbsR[1][i] + a.e[2] * AbsR[2][i];
+      rb = b.e[i];
+      if (Math.abs(t[0] * R[0][i] + t[1] * R[1][i] + t[2] * R[2][i]) > ra + rb) return false;
+    }
+
+    // test axis L = A0 x B0
+
+    ra = a.e[1] * AbsR[2][0] + a.e[2] * AbsR[1][0];
+    rb = b.e[1] * AbsR[0][2] + b.e[2] * AbsR[0][1];
+    if (Math.abs(t[2] * R[1][0] - t[1] * R[2][0]) > ra + rb) return false;
+
+    // test axis L = A0 x B1
+
+    ra = a.e[1] * AbsR[2][1] + a.e[2] * AbsR[1][1];
+    rb = b.e[0] * AbsR[0][2] + b.e[2] * AbsR[0][0];
+    if (Math.abs(t[2] * R[1][1] - t[1] * R[2][1]) > ra + rb) return false;
+
+    // test axis L = A0 x B2
+
+    ra = a.e[1] * AbsR[2][2] + a.e[2] * AbsR[1][2];
+    rb = b.e[0] * AbsR[0][1] + b.e[1] * AbsR[0][0];
+    if (Math.abs(t[2] * R[1][2] - t[1] * R[2][2]) > ra + rb) return false;
+
+    // test axis L = A1 x B0
+
+    ra = a.e[0] * AbsR[2][0] + a.e[2] * AbsR[0][0];
+    rb = b.e[1] * AbsR[1][2] + b.e[2] * AbsR[1][1];
+    if (Math.abs(t[0] * R[2][0] - t[2] * R[0][0]) > ra + rb) return false;
+
+    // test axis L = A1 x B1
+
+    ra = a.e[0] * AbsR[2][1] + a.e[2] * AbsR[0][1];
+    rb = b.e[0] * AbsR[1][2] + b.e[2] * AbsR[1][0];
+    if (Math.abs(t[0] * R[2][1] - t[2] * R[0][1]) > ra + rb) return false;
+
+    // test axis L = A1 x B2
+
+    ra = a.e[0] * AbsR[2][2] + a.e[2] * AbsR[0][2];
+    rb = b.e[0] * AbsR[1][1] + b.e[1] * AbsR[1][0];
+    if (Math.abs(t[0] * R[2][2] - t[2] * R[0][2]) > ra + rb) return false;
+
+    // test axis L = A2 x B0
+
+    ra = a.e[0] * AbsR[1][0] + a.e[1] * AbsR[0][0];
+    rb = b.e[1] * AbsR[2][2] + b.e[2] * AbsR[2][1];
+    if (Math.abs(t[1] * R[0][0] - t[0] * R[1][0]) > ra + rb) return false;
+
+    // test axis L = A2 x B1
+
+    ra = a.e[0] * AbsR[1][1] + a.e[1] * AbsR[0][1];
+    rb = b.e[0] * AbsR[2][2] + b.e[2] * AbsR[2][0];
+    if (Math.abs(t[1] * R[0][1] - t[0] * R[1][1]) > ra + rb) return false;
+
+    // test axis L = A2 x B2
+
+    ra = a.e[0] * AbsR[1][2] + a.e[1] * AbsR[0][2];
+    rb = b.e[0] * AbsR[2][1] + b.e[1] * AbsR[2][0];
+    if (Math.abs(t[1] * R[0][2] - t[0] * R[1][2]) > ra + rb) return false;
+
+    // since no separating axis is found, the OBBs must be intersecting
+
+    return true;
+  }
+
+  /**
+  * Reference: Testing Box Against Plane in Real-Time Collision Detection
+  * by Christer Ericson (chapter 5.2.3)
+  */
+  intersectsPlane(plane) {
+    this.rotation.extractBasis(xAxis, yAxis, zAxis);
+
+    // compute the projection interval radius of this OBB onto L(t) = this->center + t * p.normal;
+
+    const r = this.halfSize.x * Math.abs(plane.normal.dot(xAxis)) + this.halfSize.y * Math.abs(plane.normal.dot(yAxis)) + this.halfSize.z * Math.abs(plane.normal.dot(zAxis));
+
+    // compute distance of the OBB's center from the plane
+
+    const d = plane.normal.dot(this.center) - plane.constant;
+
+    // Intersection occurs when distance d falls within [-r,+r] interval
+
+    return Math.abs(d) <= r;
+  }
+
+  /**
+  * Performs a ray/OBB intersection test and stores the intersection point
+  * to the given 3D vector. If no intersection is detected, *null* is returned.
+  */
+  intersectRay(ray, result) {
+    // the idea is to perform the intersection test in the local space
+    // of the OBB.
+
+    this.getSize(size);
+    aabb.setFromCenterAndSize(v1.set(0, 0, 0), size);
+
+    // create a 4x4 transformation matrix
+
+    matrix.setFromMatrix3(this.rotation);
+    matrix.setPosition(this.center);
+
+    // transform ray to the local space of the OBB
+
+    inverse.copy(matrix).invert();
+    localRay.copy(ray).applyMatrix4(inverse);
+
+    // perform ray <-> AABB intersection test
+
+    if (localRay.intersectBox(aabb, result)) {
+      // transform the intersection point back to world space
+
+      return result.applyMatrix4(matrix);
+    } else {
+      return null;
+    }
+  }
+
+  /**
+  * Performs a ray/OBB intersection test. Returns either true or false if
+  * there is a intersection or not.
+  */
+  intersectsRay(ray) {
+    return this.intersectRay(ray, v1) !== null;
+  }
+  fromBox3(box3) {
+    box3.getCenter(this.center);
+    box3.getSize(this.halfSize).multiplyScalar(0.5);
+    this.rotation.identity();
+    return this;
+  }
+  equals(obb) {
+    return obb.center.equals(this.center) && obb.halfSize.equals(this.halfSize) && obb.rotation.equals(this.rotation);
+  }
+  applyMatrix4(matrix) {
+    const e = matrix.elements;
+    let sx = v1.set(e[0], e[1], e[2]).length();
+    const sy = v1.set(e[4], e[5], e[6]).length();
+    const sz = v1.set(e[8], e[9], e[10]).length();
+    const det = matrix.determinant();
+    if (det < 0) sx = -sx;
+    rotationMatrix.setFromMatrix4(matrix);
+    const invSX = 1 / sx;
+    const invSY = 1 / sy;
+    const invSZ = 1 / sz;
+    rotationMatrix.elements[0] *= invSX;
+    rotationMatrix.elements[1] *= invSX;
+    rotationMatrix.elements[2] *= invSX;
+    rotationMatrix.elements[3] *= invSY;
+    rotationMatrix.elements[4] *= invSY;
+    rotationMatrix.elements[5] *= invSY;
+    rotationMatrix.elements[6] *= invSZ;
+    rotationMatrix.elements[7] *= invSZ;
+    rotationMatrix.elements[8] *= invSZ;
+    this.rotation.multiply(rotationMatrix);
+    this.halfSize.x *= sx;
+    this.halfSize.y *= sy;
+    this.halfSize.z *= sz;
+    v1.setFromMatrixPosition(matrix);
+    this.center.add(v1);
+    return this;
+  }
+}
+const obb = new OBB();
+
+
+/***/ }),
+
 /***/ "./node_modules/super-three/examples/jsm/utils/BufferGeometryUtils.js":
 /*!****************************************************************************!*\
   !*** ./node_modules/super-three/examples/jsm/utils/BufferGeometryUtils.js ***!
@@ -45755,7 +46523,7 @@ class WorkerPool {
 /***/ ((module) => {
 
 "use strict";
-module.exports = JSON.parse('{"name":"aframe","version":"1.4.2","description":"A web framework for building virtual reality experiences.","homepage":"https://aframe.io/","main":"dist/aframe-master.js","scripts":{"dev":"cross-env INSPECTOR_VERSION=dev webpack serve --port 8080","dist":"node scripts/updateVersionLog.js && npm run dist:min && npm run dist:max","dist:max":"webpack --config webpack.config.js","dist:min":"webpack --config webpack.prod.config.js","docs":"markserv --dir docs --port 9001","preghpages":"node ./scripts/preghpages.js","ghpages":"ghpages -p gh-pages/","lint":"semistandard -v | snazzy","lint:fix":"semistandard --fix","precommit":"npm run lint","prepush":"node scripts/testOnlyCheck.js","prerelease":"node scripts/release.js 1.4.1 1.4.2","start":"npm run dev","start:https":"npm run dev -- --server-type https","test":"karma start ./tests/karma.conf.js","test:docs":"node scripts/docsLint.js","test:firefox":"npm test -- --browsers Firefox","test:chrome":"npm test -- --browsers Chrome","test:nobrowser":"NO_BROWSER=true npm test","test:node":"mocha --ui tdd tests/node"},"repository":"aframevr/aframe","license":"MIT","files":["dist/*","docs/**/*","src/**/*","vendor/**/*"],"dependencies":{"buffer":"^6.0.3","custom-event-polyfill":"^1.0.6","debug":"ngokevin/debug#noTimestamp","deep-assign":"^2.0.0","@ungap/custom-elements":"^1.1.0","load-bmfont":"^1.2.3","object-assign":"^4.0.1","present":"0.0.6","promise-polyfill":"^3.1.0","super-animejs":"^3.1.0","super-three":"0.155.0","three-bmfont-text":"dmarcos/three-bmfont-text#eed4878795be9b3e38cf6aec6b903f56acd1f695","webvr-polyfill":"^0.10.12"},"devDependencies":{"@babel/core":"^7.17.10","babel-loader":"^8.2.5","babel-plugin-istanbul":"^6.1.1","chai":"^4.3.6","chai-shallow-deep-equal":"^1.4.0","chalk":"^1.1.3","cross-env":"^7.0.3","css-loader":"^6.7.1","ghpages":"0.0.8","git-rev":"^0.2.1","glob":"^8.0.3","husky":"^0.11.7","jsdom":"^20.0.0","karma":"^6.4.0","karma-chai-shallow-deep-equal":"0.0.4","karma-chrome-launcher":"^3.1.1","karma-coverage":"^2.2.0","karma-env-preprocessor":"^0.1.1","karma-firefox-launcher":"^2.1.2","karma-mocha":"^2.0.1","karma-mocha-reporter":"^2.2.5","karma-sinon-chai":"^2.0.2","karma-webpack":"^5.0.0","markserv":"github:sukima/markserv#feature/fix-broken-websoketio-link","mocha":"^10.0.0","replace-in-file":"^2.5.3","semistandard":"^9.0.0","shelljs":"^0.7.7","shx":"^0.2.2","sinon":"<12.0.0","sinon-chai":"^3.7.0","snazzy":"^5.0.0","style-loader":"^3.3.1","too-wordy":"ngokevin/too-wordy","webpack":"^5.73.0","webpack-cli":"^4.10.0","webpack-dev-server":"^4.11.0","webpack-merge":"^5.8.0","write-good":"^1.0.8"},"link":true,"semistandard":{"ignore":["build/**","dist/**","examples/**/shaders/*.js","**/vendor/**"]},"keywords":["3d","aframe","cardboard","components","oculus","three","three.js","rift","vive","vr","quest","meta","web-components","webvr","webxr"],"engines":{"node":">= 4.6.0","npm":">= 2.15.9"}}');
+module.exports = JSON.parse('{"name":"aframe","version":"1.4.2","description":"A web framework for building virtual reality experiences.","homepage":"https://aframe.io/","main":"dist/aframe-master.js","scripts":{"dev":"cross-env INSPECTOR_VERSION=dev webpack serve --port 8080","dist":"node scripts/updateVersionLog.js && npm run dist:min && npm run dist:max","dist:max":"webpack --config webpack.config.js","dist:min":"webpack --config webpack.prod.config.js","docs":"markserv --dir docs --port 9001","preghpages":"node ./scripts/preghpages.js","ghpages":"ghpages -p gh-pages/","lint":"standardx -v | snazzy","lint:fix":"standardx --fix","precommit":"npm run lint","prepush":"node scripts/testOnlyCheck.js","prerelease":"node scripts/release.js 1.4.1 1.4.2","start":"npm run dev","start:https":"npm run dev -- --server-type https","test":"karma start ./tests/karma.conf.js","test:docs":"node scripts/docsLint.js","test:firefox":"npm test -- --browsers Firefox","test:chrome":"npm test -- --browsers Chrome","test:nobrowser":"NO_BROWSER=true npm test","test:node":"mocha --ui tdd tests/node"},"repository":"aframevr/aframe","license":"MIT","files":["dist/*","docs/**/*","src/**/*","vendor/**/*"],"dependencies":{"@ungap/custom-elements":"^1.1.0","buffer":"^6.0.3","custom-event-polyfill":"^1.0.6","debug":"ngokevin/debug#noTimestamp","deep-assign":"^2.0.0","load-bmfont":"^1.2.3","object-assign":"^4.0.1","present":"0.0.6","promise-polyfill":"^3.1.0","super-animejs":"^3.1.0","super-three":"0.158.0","three-bmfont-text":"dmarcos/three-bmfont-text#eed4878795be9b3e38cf6aec6b903f56acd1f695","webvr-polyfill":"^0.10.12"},"devDependencies":{"@babel/core":"^7.17.10","babel-loader":"^8.2.5","babel-plugin-istanbul":"^6.1.1","chai":"^4.3.6","chai-shallow-deep-equal":"^1.4.0","chalk":"^1.1.3","cross-env":"^7.0.3","css-loader":"^6.7.1","eslint":"^8.45.0","eslint-config-semistandard":"^17.0.0","eslint-config-standard-jsx":"^11.0.0","ghpages":"0.0.8","git-rev":"^0.2.1","glob":"^8.0.3","husky":"^0.11.7","jsdom":"^20.0.0","karma":"^6.4.0","karma-chai-shallow-deep-equal":"0.0.4","karma-chrome-launcher":"^3.1.1","karma-coverage":"^2.2.0","karma-env-preprocessor":"^0.1.1","karma-firefox-launcher":"^2.1.2","karma-mocha":"^2.0.1","karma-mocha-reporter":"^2.2.5","karma-sinon-chai":"^2.0.2","karma-webpack":"^5.0.0","markserv":"github:sukima/markserv#feature/fix-broken-websoketio-link","mocha":"^10.0.0","replace-in-file":"^2.5.3","shelljs":"^0.7.7","shx":"^0.2.2","sinon":"<12.0.0","sinon-chai":"^3.7.0","snazzy":"^5.0.0","standardx":"^7.0.0","style-loader":"^3.3.1","too-wordy":"ngokevin/too-wordy","webpack":"^5.73.0","webpack-cli":"^4.10.0","webpack-dev-server":"^4.11.0","webpack-merge":"^5.8.0","write-good":"^1.0.8"},"link":true,"standardx":{"ignore":["build/**","dist/**","examples/**/shaders/*.js","**/vendor/**"]},"keywords":["3d","aframe","cardboard","components","oculus","three","three.js","rift","vive","vr","quest","meta","web-components","webvr","webxr"],"engines":{"node":">= 4.6.0","npm":">= 2.15.9"}}');
 
 /***/ })
 
