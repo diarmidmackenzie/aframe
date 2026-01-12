@@ -13,6 +13,7 @@ export var System = registerSystem('renderer', {
     antialias: {default: 'auto', oneOf: ['true', 'false', 'auto']},
     highRefreshRate: {default: utils.device.isOculusBrowser()},
     logarithmicDepthBuffer: {default: 'auto', oneOf: ['true', 'false', 'auto']},
+    preserveDrawingBuffer: {default: 'false', oneOf: ['true', 'false']},
     maxCanvasWidth: {default: -1},
     maxCanvasHeight: {default: -1},
     multiviewStereo: {default: false},

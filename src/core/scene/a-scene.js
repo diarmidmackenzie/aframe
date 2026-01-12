@@ -497,6 +497,7 @@ export class AScene extends AEntity {
       antialias: !isMobile,
       canvas: this.canvas,
       logarithmicDepthBuffer: false,
+      preserveDrawingBuffer: false,
       powerPreference: 'high-performance'
     };
 
@@ -516,6 +517,10 @@ export class AScene extends AEntity {
 
       if (rendererAttr.logarithmicDepthBuffer && rendererAttr.logarithmicDepthBuffer !== 'auto') {
         rendererConfig.logarithmicDepthBuffer = rendererAttr.logarithmicDepthBuffer === 'true';
+      }
+
+      if (rendererAttr.preserveDrawingBuffer) {
+        rendererConfig.preserveDrawingBuffer = rendererAttr.preserveDrawingBuffer === 'true';
       }
 
       if (rendererAttr.alpha) {
